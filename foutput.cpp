@@ -1,10 +1,39 @@
 #include "foutput.h"
+#include "Core"
+#include "Eigenvalues"
 #include "qdir.h"
 #include "qregularexpression.h"
 
 FOutput::FOutput(QObject *parent)
     : QObject{parent}
 {}
+
+class PopulationAnalysis {
+public:
+    //Расчет полной матрицы заселенностей по Малликену
+    //Возвращает матрицу, где элемент (mu, j) - вклад функции mu в орбиталь j
+    static Eigen::MatrixXd calculateMulliken(const Eigen::MatrixXd& C, const Eigen::MatrixXd& S) {
+        Eigen::MatrixXd SC = S * C;
+        //Поэлементное умножение (Hadamard product)
+        return C.cwiseProduct(SC);
+    }
+
+    //Расчет матрицы заселенностей по Лёвдину
+    static Eigen::MatrixXd calculateLowdin(const Eigen::MatrixXd& C, const Eigen::MatrixXd& S) {
+        //Диагонализация симметричной положительно определенной матрицы S
+        Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> solver(S);
+
+        //S = U * D * U^T  => S^{1/2} = U * D^{1/2} * U^T
+        Eigen::VectorXd D_sqrt = solver.eigenvalues().cwiseSqrt();
+        Eigen::MatrixXd S_half = solver.eigenvectors() * D_sqrt.asDiagonal() * solver.eigenvectors().transpose();
+
+        //Ортогонализация коэффициентов
+        Eigen::MatrixXd C_ortho = S_half * C;
+
+        //Возведение в квадрат каждого элемента
+        return C_ortho.cwiseProduct(C_ortho);
+    }
+};
 
 void FOutput::ReadData(const QString &path_file)
 {
@@ -30,8 +59,8 @@ void FOutput::ReadData(const QString &path_file)
             programm = GAUSSIAN;
         } else if (str == "*****************") {
             programm = ORCA;
-            mulliken = true;
-            lowdin = true;
+        } else if (str == "CP2K") {
+            programm = CP2K;
         }
     } while (programm == NONE);
 
@@ -46,6 +75,9 @@ void FOutput::ReadData(const QString &path_file)
         break;
     case ORCA:
         ReadingOrca(stream, str);
+        break;
+    case CP2K:
+        ReadingCP2K(stream, str);
         break;
     default:
         break;
@@ -436,6 +468,143 @@ void FOutput::ReadingOrca(QTextStream &stream, QString &str)
             break;
         }
     }
+}
+
+void FOutput::ReadingCP2K(QTextStream &stream, QString &str)
+{
+    static const QRegularExpression re(R"(^(?:MO\|\s+)?(\d+)\s+(\d+)\s+(\S+)\s+(\S+)\s+(-?\d+\.\d{6})(?:\s+(-?\d+\.\d{6}))?(?:\s+(-?\d+\.\d{6}))?(?:\s+(-?\d+\.\d{6}))?$)");
+    bool found_basis = false, found_funcs = false, found_atoms = false, found_orbitals = false; //Флаги
+    while (!stream.atEnd()) {
+        str = stream.readLine();
+        if (!found_basis && str.contains("GLOBAL| Basis set file name", Qt::CaseInsensitive)) { //Название базиса
+            basis = str.section(u' ', -1, -1, QString::SectionSkipEmpty);
+            found_basis = true;
+        } else if (!found_funcs && str.contains("- Spherical basis functions:", Qt::CaseInsensitive)) { //Количество базисных функций
+            basis_functions = str.section(u' ', -1, -1, QString::SectionSkipEmpty).toUShort();
+            found_funcs = true;
+        } else if (!found_atoms && str.contains("MODULE QUICKSTEP: ATOMIC COORDINATES IN ANGSTROM", Qt::CaseInsensitive)) { //Список химических элементов и количество атомов
+            elements.clear();
+            stream.readLine(); //Пропуск пустой строки
+            stream.readLine(); //Пропуск строки заголовков
+            QStringList list = stream.readLine().split(u' ',  Qt::SkipEmptyParts);
+            while (!list.isEmpty()) {
+                if (list.size() > 2)
+                    elements.push_back(list[2]);
+                list = stream.readLine().split(u' ',  Qt::SkipEmptyParts);
+            }
+            atom_count = elements.size();
+            found_atoms = true;
+        } else if (!found_orbitals && str.contains("Number of occupied orbitals:", Qt::CaseInsensitive)) { //Количество орбиталей
+            orbital_count = str.section(u' ', -1, -1, QString::SectionSkipEmpty).toUShort();
+            found_orbitals = true;
+        }
+        if (found_basis && found_funcs && found_atoms && found_orbitals) //Проверка полноты данных
+            break;
+    }
+    if (!found_basis || !found_funcs || !found_atoms || !found_orbitals)
+        throw std::runtime_error("CP2K parsing error: missing fundamental system properties in output."); //Завершение программы при сбое парсинга в случае отсутствия каких-либо данных
+    //Универсальная лямбда-функция для трехмерного заполнения векторов
+    auto allocate_3d = [](auto& container, unsigned short dim1, unsigned short dim2, unsigned short dim3) {
+        container.clear();
+        container.resize(dim1);
+        for (auto& d1 : container) {
+            d1.resize(dim2);
+            for (auto& d2 : d1)
+                d2.resize(dim3);
+        }
+    };
+    allocate_3d(overlap, orbital_count, atom_count, kSpdfghi);
+    allocate_3d(eigenVectors, orbital_count, atom_count, kSpdfghi);
+    energy.clear();
+    symmetry.clear();
+    symmetry.resize(orbital_count);
+    //Структура для быстрого маппинга индексов строк на атом и подуровень
+    struct BasisMap {unsigned short atom_idx = 0, shell_idx = 0;};
+    //Маска для заполнения заселённостей
+    QList<BasisMap> basis_mask(basis_functions);
+    Eigen::MatrixXd S = Eigen::MatrixXd::Zero(basis_functions, basis_functions); //Матрица перектрытия
+    Eigen::MatrixXd C = Eigen::MatrixXd::Zero(basis_functions, orbital_count); //Матрица собственных векторов
+    stream.seek(0); //Сброс указателя потока в начало файла
+    while (!stream.atEnd()) {
+        QString line = stream.readLine();
+        if (line == " OVERLAP MATRIX") {
+            unsigned short o = 0;
+            while (o < basis_functions) {
+                stream.readLine(); //Пропуск пустой строки
+                stream.readLine(); //Пропуск строки заголовков
+                const unsigned short block_start = o;
+                for (unsigned short j = 0; j < basis_functions; ++j) {
+                    line = stream.readLine().trimmed();
+                    if (line == "") line = stream.readLine().trimmed(); //Пропуск пустых строк
+                    QRegularExpressionMatch m = re.match(line);
+                    if (m.hasMatch()) {
+                        o = block_start;
+                        for (int i = 5; i <= m.lastCapturedIndex(); ++i)
+                            S(j, o++) = m.capturedView(i).toDouble(); //Заполнение матрицы перектрытия
+                    }
+                }
+            }
+        } else if (line == " MO| EIGENVALUES, OCCUPATION NUMBERS, AND SPHERICAL EIGENVECTORS") {
+            unsigned short o = 0;
+            while (o < orbital_count) {
+                const unsigned short block_start = o;
+                for (unsigned short j = 0; j < basis_functions + 3; ++j) {
+                    line = stream.readLine().trimmed();
+                    if (line == "MO|") line = stream.readLine().trimmed(); //Пропуск пустых строк
+                    if (j == 1) { //Блок энергий
+                        o = block_start; //Сброс счётчика орбиталей на первый столбец
+                        for (auto token : QStringTokenizer{line, u' ', Qt::SkipEmptyParts} | std::views::drop(1)) {
+                            if (o < orbital_count)
+                                energy.push_back(token.toDouble() * -kHartree);
+                            ++o;
+                        }
+                    } else if (j > 2) { //Блок коэффициентов
+                        QRegularExpressionMatch m = re.match(line);
+                        if (m.hasMatch()) {
+                            unsigned short a = m.capturedView(2).toUShort() - 1; //Извлечение счетчика атома
+                            unsigned short s = 0;
+                            auto shell_type = m.capturedView(4);
+                            const char c = shell_type.isEmpty() ? '\0' : shell_type[1].toLatin1();
+                            switch (c) { //Извлечение счётчика подуровня
+                            case 's': s = 0; break;
+                            case 'p': s = 1; break;
+                            case 'd': s = 2; break;
+                            case 'f': s = 3; break;
+                            case 'g': s = 4; break;
+                            case 'h': s = 5; break;
+                            default: continue;
+                            }
+                            if (o < 5 && (j - 3) < basis_functions)
+                                basis_mask[j - 3] = {a, s}; //Заполнение маски
+                            o = block_start; //Сброс счётчика орбиталей на первый столбец
+                            for (int i = 5; i <= m.lastCapturedIndex(); ++i) {
+                                if (o < orbital_count) {
+                                    const double val = m.capturedView(i).toDouble();
+                                    eigenVectors[o][a][s].push_back(val * val); //Заполнение квадратов собственных векторов
+                                    C(j - 3, o) = val; //Заполнение собственных векторов
+                                }
+                                ++o;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    //Расчёт заселённостей по Малликену и Лёвдину
+    Eigen::MatrixXd P_mull = PopulationAnalysis::calculateMulliken(C, S);
+    Eigen::MatrixXd P_low = PopulationAnalysis::calculateLowdin(C, S);
+    allocate_3d(mullikenVectors, orbital_count, atom_count, kSpdfghi);
+    allocate_3d(lowdinVector, orbital_count, atom_count, kSpdfghi);
+    for (unsigned short o = 0; o < orbital_count; ++o) {
+        for (unsigned short j = 0; j < basis_functions; ++j) {
+            const auto& map = basis_mask[j];
+            mullikenVectors[o][map.atom_idx][map.shell_idx].push_back(P_mull(j, o));
+            lowdinVector[o][map.atom_idx][map.shell_idx].push_back(P_low(j, o));
+        }
+    }
+    mulliken = true; //Для активации кнопок
+    lowdin = true; //Для активации кнопок
 }
 
 void FOutput::ReadingGamessFly(QTextStream &stream, QString &str)
@@ -1482,3 +1651,41 @@ bool FOutput::FoundItLowdin(const QString &str, QTextStream &stream)
         }
     }
 }
+
+// //Лямбда парсер
+// auto parsePopulationMatrix = [&](auto& targetContainer) {
+//     unsigned short o = 0, a = 0, s = 0;
+//     do {
+//         const unsigned short block_start = o;
+//         for (unsigned short j = 0; j < basis_functions + 1; ++j) {
+//             QString line = stream.readLine().trimmed();
+//             if (line.isEmpty()) line = stream.readLine().trimmed();
+//             if (j > 0) { //Пропуск строки заголовка колонок
+//                 QRegularExpressionMatch m = re.match(line);
+//                 if (m.hasMatch()) {
+//                     a = m.capturedView(2).toUShort() - 1; //Извлечение счетчика атома
+//                     auto shell_type = m.capturedView(4);
+//                     if (s != 0 && shell_type.last() == u's') {
+//                         s = 0;
+//                     } else if (s != 1 && shell_type[1] == u'p') {
+//                         s = 1;
+//                     } else if (s != 2 && shell_type[1] == u'd') {
+//                         s = 2;
+//                     } else if (s != 3 && shell_type[1] == u'f') {
+//                         s = 3;
+//                     } else if (s != 4 && shell_type[1] == u'g') {
+//                         s = 4;
+//                     } else if (s != 5 && shell_type[1] == u'h') {
+//                         s = 5;
+//                     }
+//                     o = block_start;
+//                     for (int i = 5; i <= m.lastCapturedIndex(); ++i) {
+//                         targetContainer[o][a][s].push_back(m.capturedView(i).toDouble());
+//                         S(o, j) = m.capturedView(i).toDouble();
+//                         ++o;
+//                     }
+//                 }
+//             }
+//         }
+//     } while (o < orbital_count);
+// };
