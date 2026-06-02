@@ -1,7 +1,6 @@
 #include "foutput.h"
 #include "Core"
 #include "Eigenvalues"
-#include "qdir.h"
 #include "qregularexpression.h"
 
 FOutput::FOutput(QObject *parent)
@@ -37,50 +36,47 @@ public:
 
 void FOutput::ReadData(const QString &path_file)
 {
+    constexpr QStringView gamessMarker(u"GAMESS");
+    constexpr QStringView fireflyMarker(u"Firefly");
+    constexpr QStringView gaussianMarker(u"Gaussian");
+    constexpr QStringView orcaMarker(u"*****************");
+    constexpr QStringView cp2kMarker(u"CP2K");
+
     QFile file(path_file);
 
-    if (!file.open(QIODevice::ReadOnly)) {
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
         qWarning("Cannot open file for reading");
         exit(EXIT_FAILURE);
     }
 
-    programm = NONE, runtype = false, mulliken = false, ecp = false, lowdin = false, sym = false; //Сброс ключей
+    programm = NONE, runtype = false, mulliken = false, ecp = false, lowdin = false, sym = false; //Сброс флагов
 
     QTextStream stream(&file);
+    QString line;
     QString str;
-
-    do {                                 //Поиск программы в которой был получен выходной файл
-        stream >> str;
-        if (str == "GAMESS") {
+    //Поиск программы в которой был получен выходной файл
+    while (stream.readLineInto(&line)) {
+        if (line.contains(gamessMarker)) {
             programm = GAMESS;
-        } else if (str == "Firefly") {
+            ReadingGamessFly(stream, str);
+            break;
+        } else if (line.contains(fireflyMarker)) {
             programm = FIREFLY;
-        } else if (str == "Gaussian") {
+            ReadingGamessFly(stream, str);
+            break;
+        } else if (line.contains(gaussianMarker)) {
             programm = GAUSSIAN;
-        } else if (str == "*****************") {
+            ReadingGaussian(stream, str);
+            break;
+        } else if (line.contains(orcaMarker)) {
             programm = ORCA;
-        } else if (str == "CP2K") {
+            ReadingOrca(stream, str);
+            break;
+        } else if (line.contains(cp2kMarker)) {
             programm = CP2K;
+            ReadingCP2K(stream);
+            break;
         }
-    } while (programm == NONE);
-
-
-    switch (programm) {
-    case GAMESS:
-    case FIREFLY:
-        ReadingGamessFly(stream, str);
-        break;
-    case GAUSSIAN:
-        ReadingGaussian(stream, str);
-        break;
-    case ORCA:
-        ReadingOrca(stream, str);
-        break;
-    case CP2K:
-        ReadingCP2K(stream, str);
-        break;
-    default:
-        break;
     }
 
     file.close();                       //Закрытие файла
@@ -470,32 +466,39 @@ void FOutput::ReadingOrca(QTextStream &stream, QString &str)
     }
 }
 
-void FOutput::ReadingCP2K(QTextStream &stream, QString &str)
+void FOutput::ReadingCP2K(QTextStream &stream)
 {
-    static const QRegularExpression re(R"(^(?:MO\|\s+)?(\d+)\s+(\d+)\s+(\S+)\s+(\S+)\s+(-?\d+\.\d{6})(?:\s+(-?\d+\.\d{6}))?(?:\s+(-?\d+\.\d{6}))?(?:\s+(-?\d+\.\d{6}))?$)");
+    constexpr QStringView basisMarker(u"GLOBAL| Basis set file name");
+    constexpr QStringView basisNumMarker(u"- Spherical basis functions:");
+    constexpr QStringView elementmMarker(u"MODULE QUICKSTEP: ATOMIC COORDINATES IN ANGSTROM");
+    constexpr QStringView orbitalsMarker(u"Number of occupied orbitals:");
     bool found_basis = false, found_funcs = false, found_atoms = false, found_orbitals = false; //Флаги
-    while (!stream.atEnd()) {
-        str = stream.readLine();
-        if (!found_basis && str.contains("GLOBAL| Basis set file name", Qt::CaseInsensitive)) { //Название базиса
-            basis = str.section(u' ', -1, -1, QString::SectionSkipEmpty);
+    QString line = "";
+    line.reserve(256);
+    while (stream.readLineInto(&line)) {
+        if (!found_basis && line.contains(basisMarker, Qt::CaseInsensitive)) { //Название базиса
+            basis = line.section(u' ', -1, -1, QString::SectionSkipEmpty);
             found_basis = true;
-        } else if (!found_funcs && str.contains("- Spherical basis functions:", Qt::CaseInsensitive)) { //Количество базисных функций
-            basis_functions = str.section(u' ', -1, -1, QString::SectionSkipEmpty).toUShort();
+        } else if (!found_funcs && line.contains(basisNumMarker, Qt::CaseInsensitive)) { //Количество базисных функций
+            qsizetype idx = line.lastIndexOf(u' ');
+            if (idx != -1)
+                basis_functions = QStringView(line).mid(idx + 1).toUShort();
             found_funcs = true;
-        } else if (!found_atoms && str.contains("MODULE QUICKSTEP: ATOMIC COORDINATES IN ANGSTROM", Qt::CaseInsensitive)) { //Список химических элементов и количество атомов
+        } else if (!found_atoms && line.contains(elementmMarker, Qt::CaseInsensitive)) { //Список химических элементов и количество атомов
             elements.clear();
-            stream.readLine(); //Пропуск пустой строки
-            stream.readLine(); //Пропуск строки заголовков
-            QStringList list = stream.readLine().split(u' ',  Qt::SkipEmptyParts);
-            while (!list.isEmpty()) {
-                if (list.size() > 2)
-                    elements.push_back(list[2]);
-                list = stream.readLine().split(u' ',  Qt::SkipEmptyParts);
+            stream.readLineInto(&line); //Пропуск пустой строки
+            stream.readLineInto(&line); //Пропуск строки заголовков
+            while (stream.readLineInto(&line) && !line.trimmed().isEmpty()) {
+                auto token = QStringView(line).split(u' ', Qt::SkipEmptyParts);
+                if (token.size() > 2)
+                    elements.push_back(token[2].toString());
             }
             atom_count = elements.size();
             found_atoms = true;
-        } else if (!found_orbitals && str.contains("Number of occupied orbitals:", Qt::CaseInsensitive)) { //Количество орбиталей
-            orbital_count = str.section(u' ', -1, -1, QString::SectionSkipEmpty).toUShort();
+        } else if (!found_orbitals && line.contains(orbitalsMarker, Qt::CaseInsensitive)) { //Количество орбиталей
+            qsizetype idx = line.lastIndexOf(u' ');
+            if (idx != -1)
+                orbital_count = QStringView(line).mid(idx + 1).toUShort();
             found_orbitals = true;
         }
         if (found_basis && found_funcs && found_atoms && found_orbitals) //Проверка полноты данных
@@ -516,6 +519,7 @@ void FOutput::ReadingCP2K(QTextStream &stream, QString &str)
     allocate_3d(overlap, orbital_count, atom_count, kSpdfghi);
     allocate_3d(eigenVectors, orbital_count, atom_count, kSpdfghi);
     energy.clear();
+    energy.reserve(orbital_count);
     symmetry.clear();
     symmetry.resize(orbital_count);
     //Структура для быстрого маппинга индексов строк на атом и подуровень
@@ -524,23 +528,33 @@ void FOutput::ReadingCP2K(QTextStream &stream, QString &str)
     QList<BasisMap> basis_mask(basis_functions);
     Eigen::MatrixXd S = Eigen::MatrixXd::Zero(basis_functions, basis_functions); //Матрица перектрытия
     Eigen::MatrixXd C = Eigen::MatrixXd::Zero(basis_functions, orbital_count); //Матрица собственных векторов
+    //Лямбда-функция для безопасного перехода к следующей строке с данными
+    auto getNextData = [&stream, &line]() -> bool {
+        while (stream.readLineInto(&line)) {
+            QStringView t = QStringView(line).trimmed();
+            if (!t.isEmpty() && t != u"MO|") return true;
+        }
+        return false;
+    };
     stream.seek(0); //Сброс указателя потока в начало файла
-    while (!stream.atEnd()) {
-        QString line = stream.readLine();
+    while (stream.readLineInto(&line)) {
         if (line == " OVERLAP MATRIX") {
             unsigned short o = 0;
             while (o < basis_functions) {
-                stream.readLine(); //Пропуск пустой строки
-                stream.readLine(); //Пропуск строки заголовков
                 const unsigned short block_start = o;
+                getNextData(); //Пропуск строки
                 for (unsigned short j = 0; j < basis_functions; ++j) {
-                    line = stream.readLine().trimmed();
-                    if (line == "") line = stream.readLine().trimmed(); //Пропуск пустых строк
-                    QRegularExpressionMatch m = re.match(line);
-                    if (m.hasMatch()) {
-                        o = block_start;
-                        for (int i = 5; i <= m.lastCapturedIndex(); ++i)
-                            S(j, o++) = m.capturedView(i).toDouble(); //Заполнение матрицы перектрытия
+                    getNextData();
+                    auto tokenizer = QStringTokenizer{line, u' ', Qt::SkipEmptyParts};
+                    auto it = tokenizer.begin();
+                    auto end = tokenizer.end();
+                    for (int i = 0; i < 4 && it != end; ++i)
+                        ++it;
+                    if (it == end) continue; //Проверка на конец строки
+                    o = block_start;
+                    for (; it != end; ++it) {
+                        if (o >= basis_functions) break;
+                        S(j, o++) = it->toDouble();
                     }
                 }
             }
@@ -548,47 +562,85 @@ void FOutput::ReadingCP2K(QTextStream &stream, QString &str)
             unsigned short o = 0;
             while (o < orbital_count) {
                 const unsigned short block_start = o;
-                for (unsigned short j = 0; j < basis_functions + 3; ++j) {
-                    line = stream.readLine().trimmed();
-                    if (line == "MO|") line = stream.readLine().trimmed(); //Пропуск пустых строк
-                    if (j == 1) { //Блок энергий
-                        o = block_start; //Сброс счётчика орбиталей на первый столбец
-                        for (auto token : QStringTokenizer{line, u' ', Qt::SkipEmptyParts} | std::views::drop(1)) {
-                            if (o < orbital_count)
-                                energy.push_back(token.toDouble() * -kHartree);
-                            ++o;
-                        }
-                    } else if (j > 2) { //Блок коэффициентов
-                        QRegularExpressionMatch m = re.match(line);
-                        if (m.hasMatch()) {
-                            unsigned short a = m.capturedView(2).toUShort() - 1; //Извлечение счетчика атома
-                            unsigned short s = 0;
-                            auto shell_type = m.capturedView(4);
-                            const char c = shell_type.isEmpty() ? '\0' : shell_type[1].toLatin1();
-                            switch (c) { //Извлечение счётчика подуровня
+                getNextData(); //Пропуск строки индексов МО
+                getNextData(); //Строка с энергиями
+                auto tokenizer = QStringTokenizer{line, u' ', Qt::SkipEmptyParts};
+                auto it = tokenizer.begin();
+                auto end = tokenizer.end();
+                if (it != end && *it == u"MO|") ++it; //Пропуск MO|
+                o = block_start; //Сброс счётчика орбиталей на первый столбец
+                for (; it != end; ++it) {
+                    if (o >= orbital_count) break;
+                    energy.push_back(it->toDouble() * -kHartree);
+                    ++o;
+                }
+                getNextData(); //Переход на следующую строку
+                for (unsigned short j = 0; j < basis_functions; ++j) {
+                    getNextData(); //Строки с коэффициентами
+                    auto tokenizer = QStringTokenizer{line, u' ', Qt::SkipEmptyParts};
+                    auto it = tokenizer.begin();
+                    auto end = tokenizer.end();
+                    if (it != end && *it == u"MO|") ++it; //Пропуск MO|
+                    if (it == end) continue; //Проверка на конец строки
+                    ++it; //Пропуск индекса базисной функции
+                    if (it == end) continue; //Проверка на конец строки
+                    unsigned short a = it->toUShort() - 1; //Индекс атома
+                    ++it; //Пропуск названия химического элемента
+                    if (it == end) continue; //Проверка на конец строки
+                    ++it; //Указатель на тип подуровня
+                    if (it == end) continue; //Проверка на конец строки
+                    QStringView shell_type = *it;
+                    unsigned short s = 0;
+                    //Динамический поиск символа, обозначающего подуровень
+                    for (QChar ch : shell_type) {
+                        if (ch.isLetter()) {
+                            switch (ch.toLatin1()) {
                             case 's': s = 0; break;
                             case 'p': s = 1; break;
                             case 'd': s = 2; break;
                             case 'f': s = 3; break;
                             case 'g': s = 4; break;
                             case 'h': s = 5; break;
-                            default: continue;
+                            default: break;
                             }
-                            if (o < 5 && (j - 3) < basis_functions)
-                                basis_mask[j - 3] = {a, s}; //Заполнение маски
-                            o = block_start; //Сброс счётчика орбиталей на первый столбец
-                            for (int i = 5; i <= m.lastCapturedIndex(); ++i) {
-                                if (o < orbital_count) {
-                                    const double val = m.capturedView(i).toDouble();
-                                    eigenVectors[o][a][s].push_back(val * val); //Заполнение квадратов собственных векторов
-                                    C(j - 3, o) = val; //Заполнение собственных векторов
-                                }
-                                ++o;
-                            }
+                            break;
                         }
+                    }
+                    o = block_start; //Сброс счётчика орбиталей на первый столбец
+                    if (block_start == 0)
+                        basis_mask[j] = {a, s}; //Заполнение маски
+                    ++it; //Переход к числовым коэффициентам
+                    for (; it != end; ++it) {
+                        if (o >= orbital_count) break;
+                        const double val = it->toDouble();
+                        eigenVectors[o][a][s].push_back(val * val);
+                        C(j, o) = val;
+                        ++o;
                     }
                 }
             }
+        } else if (line.contains(u"Eigenvalue-selfconsistency cycle:", Qt::CaseInsensitive)) {
+            //Пропуск строк до начала таблицы данных
+            while (stream.readLineInto(&line)) {
+                if (line.contains(u"Molecular orbital", Qt::CaseInsensitive)) break;
+            }
+            //Извлечение значений квазичастичных энергий
+            while (stream.readLineInto(&line)) {
+                QStringView t = QStringView(line).trimmed();
+                if (t.isEmpty()) break; //Пустая строка - конец текущего цикла
+                auto firstSpace = t.indexOf(u' '); //Поиск первого пробела для извлечения индекса МО
+                if (firstSpace == -1) continue; //Пропуск некорректных строк
+                auto mo_index = t.left(firstSpace).toUShort(); //Извлечение номера МО
+                if (mo_index == 0) continue; //Пропуск некорректных строк
+                auto lastSpace = t.lastIndexOf(u' '); //Поиск последнего пробела для извлечения E_GW
+                if (lastSpace == -1 || lastSpace == firstSpace) continue;
+                //Извлечение подстроки от символа, следующего за последним пробелом, до конца строки
+                auto e_gw = t.mid(lastSpace + 1).toDouble();
+                if (mo_index - 1 < energy.size())
+                    energy[mo_index - 1] = e_gw * -1.0;
+            }
+        } else if (line.contains(u"Total RI-RPA Time=", Qt::CaseInsensitive)) {
+            break;
         }
     }
     //Расчёт заселённостей по Малликену и Лёвдину
