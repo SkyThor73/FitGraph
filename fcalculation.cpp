@@ -6,76 +6,23 @@ FCalculation::FCalculation(QObject *parent)
 
 void FCalculation::Calculation(const FOutput &output, const QList<FElement *> &element)
 {
-    QList<QList<QList<QList<double> > > > uSVectors = ConvolusionSPD(output, element, output.getOrbital_count(), output.getEigenVectors());   //Создание вектора с вкладами по уникальным атомам
-    RefreshVector(output, output.getOrbital_count(), spdSimple);    //Перезаполнение spd вектора
-    QList<double> sumSimple = sumSPD(output, output.getOrbital_count(), uSVectors);  //Вектор суммы значений эйгенвекторов по всем атомам
-    FillingVector(output, output.getOrbital_count(), uSVectors, sumSimple, spdSimple);  //Заполнение простыми вкладами
-
-    if (output.getUhf()) {    //Выполняет вычисление бета набора если есть uhf
-        QList<QList<QList<QList<double> > > > uSVectorsB = ConvolusionSPD(output, element, output.getOrbital_count_beta(), output.getEigenVectorsBeta());   //Создание вектора с вкладами по уникальным атомам
-        RefreshVector(output, output.getOrbital_count_beta(), spdSimpleBeta);    //Перезаполнение spd вектора
-        QList<double> sumSimpleBeta = sumSPD(output, output.getOrbital_count_beta(), uSVectorsB);  //Вектор суммы значений эйгенвекторов по всем атомам
-        FillingVector(output, output.getOrbital_count_beta(), uSVectorsB, sumSimpleBeta, spdSimpleBeta);  //Заполнение простыми beta вкладами
+    //Базовые вклады (Simple)
+    spdSimple = ConvolusionSPD(output, element, output.getOrbital_count(), output.getEigenVectors());
+    if (output.getUhf()) {
+        spdSimpleBeta = ConvolusionSPD(output, element, output.getOrbital_count_beta(), output.getEigenVectorsBeta());
     }
-
-    if (output.getMulliken()) {    //Выполняет вычисление малликеновских вкладов если NPRINT = 8
-        QList<QList<QList<QList<double> > > > uMVectors = ConvolusionSPD(output, element, output.getOrbital_count(), output.getMullikenVectors());   //Создание вектора с вкладами по уникальным атомам
-        RefreshVector(output, output.getOrbital_count(), spdMulliken);    //Перезаполнение spd вектора
-        QList<double> sumMulliken = sumSPD(output, output.getOrbital_count(), uMVectors);  //Вектор суммы значений векторов по всем атомам
-        FillingVector(output, output.getOrbital_count(), uMVectors, sumMulliken, spdMulliken);  //Заполнение млликеновскими вкладами
-
-        if (output.getUhf()) {    //Выполняет вычисление бета набора если есть uhf
-            QList<QList<QList<QList<double> > > > uMVectorsB = ConvolusionSPD(output, element, output.getOrbital_count_beta(), output.getMullikenVectorsBeta());   //Создание вектора с вкладами по уникальным атомам
-            RefreshVector(output, output.getOrbital_count_beta(), spdMullikenBeta);    //Перезаполнение spd вектора
-            QList<double> sumMullikenBeta = sumSPD(output, output.getOrbital_count_beta(), uMVectorsB);  //Вектор суммы значений векторов по всем атомам
-            FillingVector(output, output.getOrbital_count_beta(), uMVectorsB, sumMullikenBeta, spdMullikenBeta);  //Заполнение млликеновскими beta вкладами
+    //Вклады по Малликену
+    if (output.getMulliken()) {
+        spdMulliken = ConvolusionSPD(output, element, output.getOrbital_count(), output.getMullikenVectors());
+        if (output.getUhf()) {
+            spdMullikenBeta = ConvolusionSPD(output, element, output.getOrbital_count_beta(), output.getMullikenVectorsBeta());
         }
     }
-
-    if (output.getLowdin()) {    //Выполняет вычисление вкладов лёвдина если NPRINT = 9
-        QList<QList<QList<QList<double> > > > uLVectors = ConvolusionSPD(output, element, output.getOrbital_count(), output.getLowdinVector());   //Создание вектора с вкладами по уникальным атомам
-        RefreshVector(output, output.getOrbital_count(), spdLowdin);    //Перезаполнение spd вектора
-        QList<double> sumLowdin = sumSPD(output, output.getOrbital_count(), uLVectors);  //Вектор суммы значений векторов по всем атомам
-        FillingVector(output, output.getOrbital_count(), uLVectors, sumLowdin, spdLowdin);  //Заполнение лёвдин вкладами
-
-        if (output.getUhf()) {    //Выполняет вычисление бета набора если есть uhf
-            QList<QList<QList<QList<double> > > > uLVectorsB = ConvolusionSPD(output, element, output.getOrbital_count_beta(), output.getLowdinVectorBeta());   //Создание вектора с вкладами по уникальным атомам
-            RefreshVector(output, output.getOrbital_count_beta(), spdLowdinBeta);    //Перезаполнение spd вектора
-            QList<double> sumLowdinBeta = sumSPD(output, output.getOrbital_count_beta(), uLVectorsB);  //Вектор суммы значений векторов по всем атомам
-            FillingVector(output, output.getOrbital_count_beta(), uLVectorsB, sumLowdinBeta, spdLowdinBeta);  //Заполнение лёвдин beta вкладами
-        }
-    }
-
-    QList<unsigned short> temp_element_number;
-    for (int i = 0; i < output.getUnique_atoms(); i++)
-        temp_element_number.push_back(element[i]->getElementNumber());
-    for (int i = 0; i < output.getUnique_atoms(); i++) {    //Сортировка столбцов пузырьком
-        for (int j = 0; j < output.getUnique_atoms() - 1; j++) {
-            if (temp_element_number[j] < temp_element_number[j + 1]) {
-                temp_element_number.swapItemsAt(j, j + 1);
-                for (unsigned short o = 0; o < output.getOrbital_count(); o++)    //Сортировка вектора
-                    spdSimple[o].swapItemsAt(j, j + 1);
-                if (!spdSimpleBeta.isEmpty()) {
-                    for (unsigned short o = 0; o < output.getOrbital_count_beta(); o++)    //Сортировка если есть бета набор
-                        spdSimpleBeta[o].swapItemsAt(j, j + 1);
-                }
-                if (!spdMulliken.isEmpty()) {
-                    for (unsigned short o = 0; o < output.getOrbital_count(); o++)    //Сортировка если есть малликен
-                        spdMulliken[o].swapItemsAt(j, j + 1);
-                    if (!spdMullikenBeta.isEmpty()) {
-                        for (unsigned short o = 0; o < output.getOrbital_count_beta(); o++)    //Сортировка если есть бета малликен
-                            spdMullikenBeta[o].swapItemsAt(j, j + 1);
-                    }
-                }
-                if (!spdLowdin.isEmpty()) {
-                    for (unsigned short o = 0; o < output.getOrbital_count(); o++)    //Сортировка если есть малликен
-                        spdLowdin[o].swapItemsAt(j, j + 1);
-                    if (!spdLowdinBeta.isEmpty()) {
-                        for (unsigned short o = 0; o < output.getOrbital_count_beta(); o++)    //Сортировка если есть бета малликен
-                            spdLowdinBeta[o].swapItemsAt(j, j + 1);
-                    }
-                }
-            }
+    //Вклады по Лёвдину
+    if (output.getLowdin()) {
+        spdLowdin = ConvolusionSPD(output, element, output.getOrbital_count(), output.getLowdinVector());
+        if (output.getUhf()) {
+            spdLowdinBeta = ConvolusionSPD(output, element, output.getOrbital_count_beta(), output.getLowdinVectorBeta());
         }
     }
 }
@@ -85,108 +32,135 @@ void FCalculation::CalculationIntegralArea(const FOutput &output, const FDataPCS
     //Расчёт высоты отдельных подстолбцов
     //Расчёт интегральной площади
     //Расчёт высоты распределения
-    RIntensity.clear();
-    RIntensity.resize(set_orbitals);
-    integral_area.clear();
-    integral_area.resize(set_orbitals);
-    betaMO.clear();
-    betaMO.resize(set_orbitals);
-    RefreshVector(output, set_orbitals, spdRIntensity);
+    RIntensity.assign(set_orbitals, 0.0);
+    integral_area.assign(set_orbitals, 0.0);
+    betaMO.assign(set_orbitals, 0.0);
+    //Выделение памяти для spdRIntensity
+    spdRIntensity.clear();
+    spdRIntensity.resize(set_orbitals);
+    for (unsigned short o = 0; o < set_orbitals; ++o) {
+        spdRIntensity[o].resize(output.getUnique_atoms());
+        for (unsigned short a = 0; a < output.getUnique_atoms(); ++a) {
+            spdRIntensity[o][a].resize(output.getKSpdfghi());
+            for (unsigned short s = 0; s < output.getKSpdfghi(); ++s) {
+                spdRIntensity[o][a][s].assign(spdSet[o][a][s].size(), 0.0);
+            }
+        }
+    }
     for (unsigned short o = 0; o < set_orbitals; o++) {
         double betaMO_a = 0.0, betaMO_b = 0.0;
+        // Первый проход: вычисление коэффициента асимметрии betaMO
         for (unsigned short a = 0; a < output.getUnique_atoms(); a++) {
             for (unsigned short s = 0; s < output.getKSpdfghi(); s++) {
-                unsigned short spdSetSize = spdSet[o][a][s].size();
-                for (unsigned short n = 0; n < spdSetSize; n++) {
-                    betaMO_a += spdSet[o][a][s][n] * pcs.getPhotoionizationCrossSection()[source][a][s][n] * pcs.getAsymmetry()[source][a][s][n];
-                    betaMO_b += spdSet[o][a][s][n] * pcs.getPhotoionizationCrossSection()[source][a][s][n];
+                const auto& shell = spdSet[o][a][s];
+                for (unsigned short n = 0; n < shell.size(); n++) {
+                    const double pop = shell[n];
+                    if (pop == 0.0) continue; //Пропуск пустых математических узлов
+                    const double cross_section = pcs.getPhotoionizationCrossSection()[source][a][s][n];
+                    const double asymmetry = pcs.getAsymmetry()[source][a][s][n];
+                    betaMO_a += pop * cross_section * asymmetry;
+                    betaMO_b += pop * cross_section;
                 }
             }
         }
-        betaMO[o] = betaMO_a / betaMO_b;
-    }
-    for (unsigned short o = 0; o < set_orbitals; o++) {
+        //Защита от деления на ноль (для пустых виртуальных орбиталей)
+        betaMO[o] = (betaMO_b != 0.0) ? (betaMO_a / betaMO_b) : 0.0;
+        const double beta_factor = 2.0 + betaMO[o] * 0.5;
+        // Второй проход: расчет интегральной площади
         for (unsigned short a = 0; a < output.getUnique_atoms(); a++) {
             for (unsigned short s = 0; s < output.getKSpdfghi(); s++) {
-                unsigned short spdSetSize = spdSet[o][a][s].size();
-                for (unsigned short n = 0; n < spdSetSize; n++) {
-                    spdRIntensity[o][a][s][n] += 0.36952117148753 * (2 + betaMO[o] * 0.5) * 2.0 * (spdSet[o][a][s][n] * pcs.getPhotoionizationCrossSection()[source][a][s][n]) / resolution_ratio;   //Первый множитель - высота столбика 0.36952117148753 * 2.0
-                    integral_area[o] += ((2 + betaMO[o] * 0.5) * spdSet[o][a][s][n] * pcs.getPhotoionizationCrossSection()[source][a][s][n]);
+                const auto& shell = spdSet[o][a][s];
+                for (unsigned short n = 0; n < shell.size(); n++) {
+                    const double pop = shell[n];
+                    if (pop == 0.0) continue;
+                    const double cross_section = pcs.getPhotoionizationCrossSection()[source][a][s][n];
+                    const double intensity_contrib = pop * cross_section;
+                    spdRIntensity[o][a][s][n] = 0.36952117148753 * beta_factor * 2.0 * intensity_contrib / resolution_ratio;
+                    integral_area[o] += beta_factor * intensity_contrib;
                     RIntensity[o] += spdRIntensity[o][a][s][n];
                 }
             }
         }
     }
-
     CalculationXY(set_orbitals, setEnergy);
 }
 
 void FCalculation::CalculationXY(const unsigned short &set_orbitals, const QList<double> &setEnergy)
 {
-    abscissaX.clear();
-    abscissaX = { initial_value };
-    for (unsigned short x = 0; x < steps - 1; x++) {
-        abscissaX.push_back(abscissaX[x] + (end_value - initial_value) / steps);
+    if (steps == 0) return;
+    //Формирование сетки оси X без накопления ошибки округления
+    abscissaX.resize(steps);
+    const double step_size = (end_value - initial_value) / steps;
+    for (unsigned short x = 0; x < steps; x++) {
+        abscissaX[x] = initial_value + x * step_size;
     }
-
-    gaussian.clear();
+    //Аллокация и очистка массивов
     gaussian.resize(set_orbitals);
     for (auto& o : gaussian) {
-        o.resize(steps);
+        o.assign(steps, 0.0);
     }
-
-
+    ordinateY.assign(steps, 0.0);
+    //Предварительный расчет инвариантных констант профиля Псевдо-Фойгта
+    const double res2 = resolution_ratio * resolution_ratio;
+    const double L_coeff = 0.108524845891868 * resolution_ratio;
+    const double G_coeff = 0.304942959407588 / resolution_ratio;
+    const double exp_coeff = -2.77258872223978 / res2;
     for (unsigned short o = 0; o < set_orbitals; o++) {
-        if (setEnergy[o] < getUpper_bound()) {
-            for (unsigned short x = 0; x < steps; x++) {
-                gaussian[o][x] += integral_area[o] * (0.108524845891868 * resolution_ratio / (pow(abscissaX[x] - setEnergy[o], 2) + pow(resolution_ratio, 2) / 4) + 0.304942959407588 / resolution_ratio * pow(M_E, -(2.77258872223978 * pow((abscissaX[x] - setEnergy[o]) / resolution_ratio, 2))));    //Псевдо-Фойгт
-            }
+        //Пропускаем расчет, если энергия вне диапазона или площадь равна нулю
+        if (setEnergy[o] >= getUpper_bound() || integral_area[o] == 0.0) continue;
+        const double E_o = setEnergy[o];
+        const double area = integral_area[o];
+        for (unsigned short x = 0; x < steps; x++) {
+            const double dE = abscissaX[x] - E_o;
+            const double dE2 = dE * dE;
+            // Расчет компоненты Лоренца
+            const double L_val = L_coeff / (dE2 + res2 * 0.25);
+            // Расчет компоненты Гаусса
+            const double G_val = G_coeff * std::exp(dE2 * exp_coeff);
+            const double val = area * (L_val + G_val);
+            gaussian[o][x] = val;
+            //Прямая аккумуляция в итоговый спектр
+            ordinateY[x] += val;
         }
     }
-
-    ordinateY.clear();
-    for (unsigned short x = 0; x < steps; x++) {
-        ordinateY.push_back(0);
-        for (unsigned short o = 0; o < set_orbitals; o++) {
-            ordinateY[x] += gaussian[o][x];
-        }
-    }
-
-    if (ordinateY.size() != 0)
+    if (!ordinateY.isEmpty())
         max_value_y = *std::max_element(ordinateY.begin(), ordinateY.end());
 }
 
 void FCalculation::CalculationXY(const unsigned short &set_orbitals, const QList<double> &setEnergy, QList<double> resolution_vector)
 {
-    abscissaX.clear();
-    abscissaX = { initial_value };
-    for (unsigned short x = 0; x < steps - 1; x++) {
-        abscissaX.push_back(abscissaX[x] + (end_value - initial_value) / steps);
+    if (steps == 0) return;
+    abscissaX.resize(steps);
+    const double step_size = (end_value - initial_value) / steps;
+    for (unsigned short x = 0; x < steps; x++) {
+        abscissaX[x] = initial_value + x * step_size;
     }
-
-    gaussian.clear();
     gaussian.resize(set_orbitals);
     for (auto& o : gaussian) {
-        o.resize(steps);
+        o.assign(steps, 0.0);
     }
-
+    ordinateY.assign(steps, 0.0);
     for (unsigned short o = 0; o < set_orbitals; o++) {
-        if (setEnergy[o] < getUpper_bound()) {
-            for (unsigned short x = 0; x < steps; x++) {
-                gaussian[o][x] += integral_area[o] * (0.108524845891868 * resolution_vector[o] / (pow(abscissaX[x] - setEnergy[o], 2) + pow(resolution_vector[o], 2) / 4) + 0.304942959407588 / resolution_vector[o] * pow(M_E, -(2.77258872223978 * pow((abscissaX[x] - setEnergy[o]) / resolution_vector[o], 2))));    //Псевдо-Фойгт
-            }
+        if (setEnergy[o] >= getUpper_bound() || integral_area[o] == 0.0) continue;
+        const double E_o = setEnergy[o];
+        const double area = integral_area[o];
+        // Инварианты переносятся сюда, так как resolution индивидуально для орбитали
+        const double res = resolution_vector[o];
+        const double res2 = res * res;
+        const double L_coeff = 0.108524845891868 * res;
+        const double G_coeff = 0.304942959407588 / res;
+        const double exp_coeff = -2.77258872223978 / res2;
+        for (unsigned short x = 0; x < steps; x++) {
+            const double dE = abscissaX[x] - E_o;
+            const double dE2 = dE * dE;
+            const double L_val = L_coeff / (dE2 + res2 * 0.25);
+            const double G_val = G_coeff * std::exp(dE2 * exp_coeff);
+            const double val = area * (L_val + G_val);
+            gaussian[o][x] = val;
+            ordinateY[x] += val;
         }
     }
-
-    ordinateY.clear();
-    for (unsigned short x = 0; x < steps; x++) {
-        ordinateY.push_back(0);
-        for (unsigned short o = 0; o < set_orbitals; o++) {
-            ordinateY[x] += gaussian[o][x];
-        }
-    }
-
-    if (ordinateY.size() != 0)
+    if (!ordinateY.isEmpty())
         max_value_y = *std::max_element(ordinateY.begin(), ordinateY.end());
 }
 
@@ -358,329 +332,164 @@ void FCalculation::RefreshVector(const FOutput &output, const unsigned short &se
     }
 }
 
-void FCalculation::FillingVector(const FOutput &output, const unsigned short &set_orbitals, const QList<QList<QList<QList<double> > > > &uVectors, const QList<double> &sumVector, QList<QList<QList<QList<double> > > > &spdVectorAB)
-{
-    for (unsigned short o = 0; o < set_orbitals; o++) {
-        for (unsigned short a = 0; a < output.getUnique_atoms(); a++) {
-            for (unsigned short s = 0; s < output.getKSpdfghi(); s++) {
-                unsigned short uVectorsSize = uVectors[o][a][s].size();
-                for (unsigned short n = 0; n < uVectorsSize; n++) {
-                    if (sumVector[o] != 0)
-                        spdVectorAB[o][a][s][n] += uVectors[o][a][s][n] / sumVector[o];
-                }
-            }
-        }
-    }
-}
-
-QList<double> FCalculation::sumSPD(const FOutput &output, const unsigned short &set_orbitals, const QList<QList<QList<QList<double> > > > &uVectors)
-{
-    QList<double> sumVector(set_orbitals);   //Полная сумма значений эйгенвекторов
-    for (unsigned short o = 0; o < set_orbitals; o++) {
-        for (unsigned short a = 0; a < output.getUnique_atoms(); a++) {
-            for (unsigned short s = 0; s < output.getKSpdfghi(); s++) {
-                unsigned short uVectorsSize = uVectors[o][a][s].size();
-                for (unsigned short n = 0; n < uVectorsSize; n++)
-                    sumVector[o] += uVectors[o][a][s][n];
-            }
-        }
-    }
-    return sumVector;
-}
-
 QList<QList<QList<QList<double> > > > FCalculation::ConvolusionSPD(const FOutput &output, const QList<FElement *> &element, const unsigned short &set_orbitals, const QList<QList<QList<QList<double> > > > &setVectors)
 {
-    QList<QList<QList<QList<double> > > > sumVectorsSPD(set_orbitals, QList<QList<QList<double> > > (output.getAtom_count(), QList<QList<double> > (output.getKSpdfghi(), QList<double>(19))));    //Суммирование эйгенвекторов по компонентам
-    unsigned short i = 0;
-    for (unsigned short o = 0; o < set_orbitals; o++) {
-        for (unsigned short a = 0; a < output.getAtom_count(); a++) {
-            i = 0;
-            for (const auto &var : output.getUElements()) {
-                if (var == output.getElements()[a])
-                    break;
-                ++i;
+    //Кэширование типа базисного набора
+    enum class BasisFamily { SVP, TZVP, QZVP, DUNNING, UNKNOWN }; //Семейство базисов
+    BasisFamily currentBasis = BasisFamily::UNKNOWN;
+    const QString basisStr = output.getBasis();
+    if (basisStr.contains(u"def2", Qt::CaseInsensitive) || basisStr.contains(u"vp", Qt::CaseInsensitive) || basisStr.contains(u"v-p", Qt::CaseInsensitive)) {
+        if (basisStr.contains(u"s", Qt::CaseInsensitive)) currentBasis = BasisFamily::SVP;
+        else if (basisStr.contains(u"t", Qt::CaseInsensitive)) currentBasis = BasisFamily::TZVP;
+        else if (basisStr.contains(u"q", Qt::CaseInsensitive)) currentBasis = BasisFamily::QZVP;
+    } else if (basisStr.contains(u"cc", Qt::CaseInsensitive) || basisStr.contains(u"pc", Qt::CaseInsensitive)) {
+        currentBasis = BasisFamily::DUNNING;
+    }
+    const unsigned short atom_count = output.getAtom_count();
+    const unsigned short unique_count = output.getUnique_atoms();
+    const unsigned short subshells = output.getKSpdfghi();
+    //Хэширование Z-номеров для доступа за O(1)
+    QHash<QString, unsigned short> nameToZ;
+    for (unsigned short i = 0; i < unique_count; ++i)
+        nameToZ.insert(output.getUElements()[i], element[i]->getElementNumber());
+    //Создание и сортировка массива строк c названиями атомов в порядке уменьшения зарядового числа
+    QList<QString> sorted_elements = output.getUElements();
+    std::sort(sorted_elements.begin(), sorted_elements.end(), [&](const QString& a, const QString& b) {
+        return nameToZ[a] > nameToZ[b];
+    });
+    std::vector<unsigned short> unique_map(atom_count, 0);
+    std::vector<unsigned short> Z_numbers(unique_count, 0);
+    for (unsigned short a = 0; a < atom_count; ++a) {
+        for (unsigned short u = 0; u < unique_count; ++u) {
+            if (output.getElements()[a] == sorted_elements[u]) {
+                unique_map[a] = u;
+                Z_numbers[u] = nameToZ[sorted_elements[u]]; // Извлечение Z-номера из хэш-таблицы
+                break;
             }
-            for (unsigned short s = 0; s < output.getKSpdfghi(); s++) {
-                unsigned short setVectorsSize = setVectors[o][a][s].size();
+        }
+    }
+    //Вектор вкладов
+    QList<QList<QList<QList<double>>>> uVectors(set_orbitals, QList<QList<QList<double>>>(unique_count, QList<QList<double>>(subshells, QList<double>(19, 0.0))));
+    //Свертка неравномерных подоболочек (s, p, d) через границы индексов
+    auto contract_shell = [](const auto& src, auto& tgt, auto start_idx, std::initializer_list<unsigned short> bounds) {
+        auto tgt_idx = start_idx;
+        auto it = bounds.begin();
+        for (auto i = 0; i < src.size(); ++i) {
+            while (it != bounds.end() && i >= *it) {
+                tgt_idx++;
+                it++;
+            }
+            if (tgt_idx < tgt.size()) tgt[tgt_idx] += src[i];
+        }
+    };
+    //Равномерная аккумуляция гармоник (f, g, h)
+    auto reduce_angular = [](const auto& src, auto& tgt, auto chunk_size) {
+        if (chunk_size == 0) return;
+        for (auto i = 0; i < src.size(); ++i) {
+            auto tgt_idx = i / chunk_size;
+            if (tgt_idx < tgt.size()) tgt[tgt_idx] += src[i];
+        }
+    };
+    for (unsigned short o = 0; o < set_orbitals; o++) {
+        for (unsigned short a = 0; a < atom_count; a++) {
+            const unsigned short u = unique_map[a];
+            const unsigned short Z = Z_numbers[u];
+            for (unsigned short s = 0; s < subshells; s++) {
+                const auto& source = setVectors[o][a][s];
+                auto& target = uVectors[o][u][s];
+                if (source.isEmpty()) continue;
                 switch (s) {
-                case 0: {       //S оболочка
-                    if (output.getBasis().contains("def2", Qt::CaseInsensitive) || output.getBasis().contains("vp", Qt::CaseInsensitive) || output.getBasis().contains("v-p", Qt::CaseInsensitive)) {
-                        if (output.getBasis().contains("s", Qt::CaseInsensitive)) {         //SVP
-                            if (element[i]->getElementNumber() < 3) {       //H, He
-                                for (unsigned short n = 0; n < setVectorsSize; n++)
-                                    sumVectorsSPD[o][a][s][0] += setVectors[o][a][s][n];
-                            } else if (element[i]->getElementNumber() < 11) {
-                                for (unsigned short n = 0; n < 2; n++)      //1s 2s
-                                    sumVectorsSPD[o][a][s][n] += setVectors[o][a][s][n];
-                                for (unsigned short n = 2; n < setVectorsSize; n++)    //в 2s суммируем оставшиеся коэффициенты
-                                    sumVectorsSPD[o][a][s][1] += setVectors[o][a][s][n];
-                            } else if (element[i]->getElementNumber() < 19) {
-                                for (unsigned short n = 0; n < 3; n++)      //1s 2s 3s
-                                    sumVectorsSPD[o][a][s][n] += setVectors[o][a][s][n];
-                                for (unsigned short n = 3; n < setVectorsSize; n++)    //в 3s суммируем оставшиеся коэффициенты
-                                    sumVectorsSPD[o][a][s][2] += setVectors[o][a][s][n];
-                            } else if (element[i]->getElementNumber() < 37) {
-                                for (unsigned short n = 0; n < 4; n++)      //1s 2s 3s 4s
-                                    sumVectorsSPD[o][a][s][n] += setVectors[o][a][s][n];
-                                for (unsigned short n = 4; n < setVectorsSize; n++)    //в 4s суммируем оставшиеся коэффициенты
-                                    sumVectorsSPD[o][a][s][3] += setVectors[o][a][s][n];
-                            } else if (element[i]->getElementNumber() < 55) {   //Xe
-                                for (unsigned short n = 0; n < 2; n++)      //4s
-                                    sumVectorsSPD[o][a][s][3] += setVectors[o][a][s][n];
-                                for (unsigned short n = 2; n < setVectorsSize; n++)    //в 5s суммируем оставшиеся коэффициенты
-                                    sumVectorsSPD[o][a][s][4] += setVectors[o][a][s][n];
-                            }/* else if (element[i]->getElementNumber() < 55) {   //Xe?
-                                for (unsigned short n = 0; n < 4; n++)      //4s
-                                    sumVectorsSPD[o][a][s][3] += setVectors[o][a][s][n];
-                                for (unsigned short n = 4; n < setVectorsSize; n++)    //в 5s суммируем оставшиеся коэффициенты
-                                    sumVectorsSPD[o][a][s][4] += setVectors[o][a][s][n];
-                            }*/
-                        } else if (output.getBasis().contains("t", Qt::CaseInsensitive)) {  //TZVP
-                            if (element[i]->getElementNumber() < 3) {       //H, He
-                                for (unsigned short n = 0; n < setVectorsSize; n++)
-                                    sumVectorsSPD[o][a][s][0] += setVectors[o][a][s][n];
-                            } else if (element[i]->getElementNumber() < 11) {
-                                for (unsigned short n = 0; n < 2; n++)      //1s
-                                    sumVectorsSPD[o][a][s][0] += setVectors[o][a][s][n];
-                                for (unsigned short n = 2; n < setVectorsSize; n++)    //в 2s суммируем оставшиеся коэффициенты
-                                    sumVectorsSPD[o][a][s][1] += setVectors[o][a][s][n];
-                            } else if (element[i]->getElementNumber() < 19) {
-                                sumVectorsSPD[o][a][s][0] += setVectors[o][a][s][0];    //1s
-                                for (unsigned short n = 1; n < 3; n++)      //2s
-                                    sumVectorsSPD[o][a][s][1] += setVectors[o][a][s][n];
-                                for (unsigned short n = 3; n < setVectorsSize; n++)    //в 3s суммируем оставшиеся коэффициенты
-                                    sumVectorsSPD[o][a][s][2] += setVectors[o][a][s][n];
-                            } else if (element[i]->getElementNumber() < 37) {
-                                sumVectorsSPD[o][a][s][0] += setVectors[o][a][s][0];    //1s
-                                sumVectorsSPD[o][a][s][1] += setVectors[o][a][s][1];    //2s
-                                for (unsigned short n = 2; n < 4; n++)      //3s
-                                    sumVectorsSPD[o][a][s][2] += setVectors[o][a][s][n];
-                                for (unsigned short n = 4; n < setVectorsSize; n++)    //в 4s суммируем оставшиеся коэффициенты
-                                    sumVectorsSPD[o][a][s][3] += setVectors[o][a][s][n];
-                            } else if (element[i]->getElementNumber() < 55) {   //Xe
-                                for (unsigned short n = 0; n < 4; n++)      //4s
-                                    sumVectorsSPD[o][a][s][3] += setVectors[o][a][s][n];
-                                for (unsigned short n = 4; n < setVectorsSize; n++)    //в 5s суммируем оставшиеся коэффициенты
-                                    sumVectorsSPD[o][a][s][4] += setVectors[o][a][s][n];
-                            }
-                        } else if (output.getBasis().contains("q", Qt::CaseInsensitive)) {  //QZVP
-                            if (element[i]->getElementNumber() < 3) {       //H, He
-                                for (unsigned short n = 0; n < setVectorsSize; n++)
-                                    sumVectorsSPD[o][a][s][0] += setVectors[o][a][s][n];
-                            } else if (element[i]->getElementNumber() < 11) {   //Ne
-                                for (unsigned short n = 0; n < 3; n++)      //1s
-                                    sumVectorsSPD[o][a][s][0] += setVectors[o][a][s][n];
-                                for (unsigned short n = 3; n < setVectorsSize; n++)    //в 2s суммируем оставшиеся коэффициенты
-                                    sumVectorsSPD[o][a][s][1] += setVectors[o][a][s][n];
-                            } else if (element[i]->getElementNumber() < 19) {   //Ar
-                                for (unsigned short n = 0; n < 3; n++)      //1s
-                                    sumVectorsSPD[o][a][s][0] += setVectors[o][a][s][n];
-                                for (unsigned short n = 3; n < 6; n++)      //2s
-                                    sumVectorsSPD[o][a][s][1] += setVectors[o][a][s][n];
-                                for (unsigned short n = 6; n < setVectorsSize; n++)    //в 3s суммируем оставшиеся коэффициенты
-                                    sumVectorsSPD[o][a][s][2] += setVectors[o][a][s][n];
-                            } else if (element[i]->getElementNumber() < 37) {   //Kr
-                                for (unsigned short n = 0; n < 3; n++)      //1s
-                                    sumVectorsSPD[o][a][s][0] += setVectors[o][a][s][n];
-                                for (unsigned short n = 3; n < 5; n++)      //2s
-                                    sumVectorsSPD[o][a][s][1] += setVectors[o][a][s][n];
-                                for (unsigned short n = 5; n < 8; n++)      //3s
-                                    sumVectorsSPD[o][a][s][2] += setVectors[o][a][s][n];
-                                for (unsigned short n = 8; n < setVectorsSize; n++)    //в 4s суммируем оставшиеся коэффициенты
-                                    sumVectorsSPD[o][a][s][3] += setVectors[o][a][s][n];
-                            } else if (element[i]->getElementNumber() < 55) {   //Xe
-                                for (unsigned short n = 0; n < 4; n++)      //4s
-                                    sumVectorsSPD[o][a][s][3] += setVectors[o][a][s][n];
-                                for (unsigned short n = 4; n < setVectorsSize; n++)    //в 5s суммируем оставшиеся коэффициенты
-                                    sumVectorsSPD[o][a][s][4] += setVectors[o][a][s][n];
-                            }
-                        }
-                    } else if (output.getBasis().contains("cc", Qt::CaseInsensitive) || output.getBasis().contains("pc", Qt::CaseInsensitive)) {
-                        if (element[i]->getElementNumber() < 3) {       //H, He
-                            for (unsigned short n = 0; n < setVectorsSize; n++)
-                                sumVectorsSPD[o][a][s][0] += setVectors[o][a][s][n];
-                        } else if (element[i]->getElementNumber() < 11) {
-                            for (unsigned short n = 0; n < 2; n++)      //1s 2s
-                                sumVectorsSPD[o][a][s][n] += setVectors[o][a][s][n];
-                            for (unsigned short n = 2; n < setVectorsSize; n++)    //в 2s суммируем оставшиеся коэффициенты
-                                sumVectorsSPD[o][a][s][1] += setVectors[o][a][s][n];
-                        } else if (element[i]->getElementNumber() < 19) {
-                            for (unsigned short n = 0; n < 3; n++)      //1s 2s 3s
-                                sumVectorsSPD[o][a][s][n] += setVectors[o][a][s][n];
-                            for (unsigned short n = 3; n < setVectorsSize; n++)    //в 3s суммируем оставшиеся коэффициенты
-                                sumVectorsSPD[o][a][s][2] += setVectors[o][a][s][n];
-                        } else if (element[i]->getElementNumber() < 37) {
-                            for (unsigned short n = 0; n < 4; n++)      //1s 2s 3s 4s
-                                sumVectorsSPD[o][a][s][n] += setVectors[o][a][s][n];
-                            for (unsigned short n = 4; n < setVectorsSize; n++)    //в 4s суммируем оставшиеся коэффициенты
-                                sumVectorsSPD[o][a][s][3] += setVectors[o][a][s][n];
-                        }
+                case 0: // S-оболочка
+                    if (currentBasis == BasisFamily::SVP) {
+                        if (Z < 3)       contract_shell(source, target, 0, {});
+                        else if (Z < 11) contract_shell(source, target, 0, {1});
+                        else if (Z < 19) contract_shell(source, target, 0, {1, 2});
+                        else if (Z < 37) contract_shell(source, target, 0, {1, 2, 3});
+                        else if (Z < 55) contract_shell(source, target, 3, {2});
+                    } else if (currentBasis == BasisFamily::TZVP) {
+                        if (Z < 3)       contract_shell(source, target, 0, {});
+                        else if (Z < 11) contract_shell(source, target, 0, {2});
+                        else if (Z < 19) contract_shell(source, target, 0, {1, 3});
+                        else if (Z < 37) contract_shell(source, target, 0, {1, 2, 4});
+                        else if (Z < 55) contract_shell(source, target, 3, {4});
+                    } else if (currentBasis == BasisFamily::QZVP) {
+                        if (Z < 3)       contract_shell(source, target, 0, {});
+                        else if (Z < 11) contract_shell(source, target, 0, {3});
+                        else if (Z < 19) contract_shell(source, target, 0, {3, 6});
+                        else if (Z < 37) contract_shell(source, target, 0, {3, 5, 8});
+                        else if (Z < 55) contract_shell(source, target, 3, {4});
+                    } else if (currentBasis == BasisFamily::DUNNING) {
+                        if (Z < 3)       contract_shell(source, target, 0, {});
+                        else if (Z < 11) contract_shell(source, target, 0, {2});
+                        else if (Z < 19) contract_shell(source, target, 0, {3});
+                        else if (Z < 37) contract_shell(source, target, 0, {4});
                     }
                     break;
-                }
-                case 1: {       //P оболочка
-                    if (output.getBasis().contains("def2", Qt::CaseInsensitive) || output.getBasis().contains("vp", Qt::CaseInsensitive) || output.getBasis().contains("v-p", Qt::CaseInsensitive)) {
-                        if (output.getBasis().contains("s", Qt::CaseInsensitive)) {             //SVP
-                            if (element[i]->getElementNumber() < 3) {           //H, He
-                                sumVectorsSPD[o][a][s][0] = 0.0;
-                            } else if (element[i]->getElementNumber() < 11) {   //Ne
-                                for (unsigned short n = 0; n < setVectorsSize; n++)
-                                    sumVectorsSPD[o][a][s][0] += setVectors[o][a][s][n];    //2p
-                            } else if (element[i]->getElementNumber() < 19) {   //Ar
-                                for (unsigned short n = 0; n < 3; n++)
-                                    sumVectorsSPD[o][a][s][0] += setVectors[o][a][s][n];    //2p
-                                for (unsigned short n = 3; n < setVectorsSize; n++)
-                                    sumVectorsSPD[o][a][s][1] += setVectors[o][a][s][n];    //3p
-                            } else if (element[i]->getElementNumber() < 37) {   //Kr
-                                for (unsigned short n = 0; n < 3; n++)
-                                    sumVectorsSPD[o][a][s][0] += setVectors[o][a][s][n];    //2p
-                                for (unsigned short n = 3; n < 6; n++)
-                                    sumVectorsSPD[o][a][s][1] += setVectors[o][a][s][n];    //3p
-                                for (unsigned short n = 6; n < setVectorsSize; n++)
-                                    sumVectorsSPD[o][a][s][2] += setVectors[o][a][s][n];    //4p
-                            } else if (element[i]->getElementNumber() < 55) {   //Xe
-                                for (unsigned short n = 0; n < 6; n++)
-                                    sumVectorsSPD[o][a][s][2] += setVectors[o][a][s][n];    //4p
-                                for (unsigned short n = 6; n < setVectorsSize; n++)
-                                    sumVectorsSPD[o][a][s][3] += setVectors[o][a][s][n];    //5p
-                            }/* else if (element[i]->getElementNumber() < 55) {   //Xe
-                                for (unsigned short n = 0; n < 9; n++)
-                                    sumVectorsSPD[o][a][s][2] += setVectors[o][a][s][n];    //4p
-                                for (unsigned short n = 9; n < setVectorsSize; n++)
-                                    sumVectorsSPD[o][a][s][3] += setVectors[o][a][s][n];    //5p
-                            }*/
-                        } else if (output.getBasis().contains("t", Qt::CaseInsensitive)) {      //TZVP
-                            if (element[i]->getElementNumber() < 3) {           //H, He
-                                sumVectorsSPD[o][a][s][0] = 0.0;
-                            } else if (element[i]->getElementNumber() < 11) {   //Ne
-                                for (unsigned short n = 0; n < setVectorsSize; n++)
-                                    sumVectorsSPD[o][a][s][0] += setVectors[o][a][s][n];    //2p
-                            } else if (element[i]->getElementNumber() < 19) {   //Ar
-                                for (unsigned short n = 0; n < 6; n++)
-                                    sumVectorsSPD[o][a][s][0] += setVectors[o][a][s][n];    //2p
-                                for (unsigned short n = 6; n < setVectorsSize; n++)
-                                    sumVectorsSPD[o][a][s][1] += setVectors[o][a][s][n];    //3p
-                            } else if (element[i]->getElementNumber() < 37) {   //Kr
-                                for (unsigned short n = 0; n < 3; n++)
-                                    sumVectorsSPD[o][a][s][0] += setVectors[o][a][s][n];    //2p
-                                for (unsigned short n = 3; n < 6; n++)
-                                    sumVectorsSPD[o][a][s][1] += setVectors[o][a][s][n];    //3p
-                                for (unsigned short n = 6; n < setVectorsSize; n++)
-                                    sumVectorsSPD[o][a][s][2] += setVectors[o][a][s][n];    //4p
-                            } else if (element[i]->getElementNumber() < 55) {   //Xe
-                                for (unsigned short n = 0; n < 9; n++)
-                                    sumVectorsSPD[o][a][s][2] += setVectors[o][a][s][n];    //4p
-                                for (unsigned short n = 9; n < setVectorsSize; n++)
-                                    sumVectorsSPD[o][a][s][3] += setVectors[o][a][s][n];    //5p
-                            }
-                        } else if (output.getBasis().contains("q", Qt::CaseInsensitive)) {      //QZVP
-                            if (element[i]->getElementNumber() < 3) {           //H, He
-                                sumVectorsSPD[o][a][s][0] = 0.0;
-                            } else if (element[i]->getElementNumber() < 11) {   //Ne
-                                for (unsigned short n = 0; n < setVectorsSize; n++)
-                                    sumVectorsSPD[o][a][s][0] += setVectors[o][a][s][n];    //2p
-                            } else if (element[i]->getElementNumber() < 19) {   //Ar
-                                for (unsigned short n = 0; n < 6; n++)
-                                    sumVectorsSPD[o][a][s][0] += setVectors[o][a][s][n];    //2p
-                                for (unsigned short n = 6; n < setVectorsSize; n++)
-                                    sumVectorsSPD[o][a][s][1] += setVectors[o][a][s][n];    //3p
-                            } else if (element[i]->getElementNumber() < 37) {   //Kr
-                                for (unsigned short n = 0; n < 3; n++)
-                                    sumVectorsSPD[o][a][s][0] += setVectors[o][a][s][n];    //2p
-                                for (unsigned short n = 3; n < 9; n++)
-                                    sumVectorsSPD[o][a][s][1] += setVectors[o][a][s][n];    //3p
-                                for (unsigned short n = 9; n < setVectorsSize; n++)
-                                    sumVectorsSPD[o][a][s][2] += setVectors[o][a][s][n];    //4p
-                            } else if (element[i]->getElementNumber() < 55) {   //Xe
-                                for (unsigned short n = 0; n < 9; n++)
-                                    sumVectorsSPD[o][a][s][2] += setVectors[o][a][s][n];    //4p
-                                for (unsigned short n = 9; n < setVectorsSize; n++)
-                                    sumVectorsSPD[o][a][s][3] += setVectors[o][a][s][n];    //5p
-                            }
-                        }
-                    } else if (output.getBasis().contains("cc", Qt::CaseInsensitive) || output.getBasis().contains("pc", Qt::CaseInsensitive)) {
-                        if (element[i]->getElementNumber() < 3) {           //H, He
-                            sumVectorsSPD[o][a][s][0] = 0.0;
-                        } else if (element[i]->getElementNumber() < 11) {   //Ne
-                            for (unsigned short n = 0; n < setVectorsSize; n++)
-                                sumVectorsSPD[o][a][s][0] += setVectors[o][a][s][n];    //2p
-                        } else if (element[i]->getElementNumber() < 19) {   //Ar
-                            for (unsigned short n = 0; n < 3; n++)
-                                sumVectorsSPD[o][a][s][0] += setVectors[o][a][s][n];    //2p
-                            for (unsigned short n = 3; n < setVectorsSize; n++)
-                                sumVectorsSPD[o][a][s][1] += setVectors[o][a][s][n];    //3p
-                        } else if (element[i]->getElementNumber() < 37) {   //Kr
-                            for (unsigned short n = 0; n < 3; n++)
-                                sumVectorsSPD[o][a][s][0] += setVectors[o][a][s][n];    //2p
-                            for (unsigned short n = 3; n < 6; n++)
-                                sumVectorsSPD[o][a][s][1] += setVectors[o][a][s][n];    //3p
-                            for (unsigned short n = 6; n < setVectorsSize; n++)
-                                sumVectorsSPD[o][a][s][2] += setVectors[o][a][s][n];    //4p
-                        }
+                case 1: // P-оболочка
+                    if (Z < 3) break; // H, He игнорируются
+                    if (currentBasis == BasisFamily::SVP) {
+                        if (Z < 11)      contract_shell(source, target, 0, {});
+                        else if (Z < 19) contract_shell(source, target, 0, {3});
+                        else if (Z < 37) contract_shell(source, target, 0, {3, 6});
+                        else if (Z < 55) contract_shell(source, target, 2, {6});
+                    } else if (currentBasis == BasisFamily::TZVP) {
+                        if (Z < 11)      contract_shell(source, target, 0, {});
+                        else if (Z < 19) contract_shell(source, target, 0, {6});
+                        else if (Z < 37) contract_shell(source, target, 0, {3, 6});
+                        else if (Z < 55) contract_shell(source, target, 2, {9});
+                    } else if (currentBasis == BasisFamily::QZVP) {
+                        if (Z < 11)      contract_shell(source, target, 0, {});
+                        else if (Z < 19) contract_shell(source, target, 0, {6});
+                        else if (Z < 37) contract_shell(source, target, 0, {3, 9});
+                        else if (Z < 55) contract_shell(source, target, 2, {9});
+                    } else if (currentBasis == BasisFamily::DUNNING) {
+                        if (Z < 11)      contract_shell(source, target, 0, {});
+                        else if (Z < 19) contract_shell(source, target, 0, {3});
+                        else if (Z < 37) contract_shell(source, target, 0, {3, 6});
                     }
                     break;
-                }
-                case 2: {       //D оболочка
-                    if (element[i]->getElementNumber() < 19) {   //Ar
-                        sumVectorsSPD[o][a][s][0] = 0.0;
-                    } else if (element[i]->getElementNumber() < 37) {   //Kr
-                        for (unsigned short n = 0; n < setVectorsSize; n++)
-                            sumVectorsSPD[o][a][s][0] += setVectors[o][a][s][n];    //3d
-                    } else if (element[i]->getElementNumber() < 55) {   //Xe
-                        for (unsigned short n = 0; n < setVectorsSize; n++)
-                            sumVectorsSPD[o][a][s][1] += setVectors[o][a][s][n];    //4d
-                    }
+                case 2: // D-оболочка
+                    if (Z < 19) break;
+                    if (Z < 37)      contract_shell(source, target, 0, {});
+                    else if (Z < 55) contract_shell(source, target, 1, {});
                     break;
-                }
-                case 3: {       //F оболочка
-                    if (output.getProgramm() == FOutput::GAUSSIAN || output.getProgramm() == FOutput::ORCA) {
-                        for (unsigned short n = 0; n < setVectorsSize / 7; n++) {
-                            for (unsigned short i = (n * 7); i < ((n * 7) + 7); i++) {
-                                sumVectorsSPD[o][a][s][n] += setVectors[o][a][s][i];
-                            }
-                        }
-                    } else {
-                        for (unsigned short n = 0; n < setVectorsSize / 10; n++) {
-                            for (unsigned short i = (n * 10); i < ((n * 10) + 10); i++) {
-                                sumVectorsSPD[o][a][s][n] += setVectors[o][a][s][i];
-                            }
-                        }
-                    }
+                case 3: // F-оболочка
+                    reduce_angular(source, target, (output.getProgramm() == FOutput::GAUSSIAN || output.getProgramm() == FOutput::ORCA) ? 7 : 10);
                     break;
-                }
-                case 4: {       //G оболочка
-                    for (unsigned short n = 0; n < setVectorsSize / 15; n++) {
-                        for (unsigned short i = (n * 15); i < ((n * 15) + 15); i++) {
-                            sumVectorsSPD[o][a][s][n] += setVectors[o][a][s][i];
-                        }
-                    }
+                case 4: // G-оболочка
+                    reduce_angular(source, target, 15);
                     break;
-                }
-                case 5: {       //H оболочка
-                    for (unsigned short n = 0; n < setVectorsSize / 21; n++) {
-                        for (unsigned short i = (n * 21); i < ((n * 21) + 21); i++) {
-                            sumVectorsSPD[o][a][s][n] += setVectors[o][a][s][i];
-                        }
-                    }
-                    break;
-                }
-                default:
+                case 5: // H-оболочка
+                    reduce_angular(source, target, 21);
                     break;
                 }
             }
         }
     }
-
-    QList<QList<QList<QList<double> > > > uVectors(set_orbitals, QList<QList<QList<double> > > (output.getUnique_atoms(), QList<QList<double> > (output.getKSpdfghi(), QList<double>(19))));
-    for (unsigned short a = 0; a < output.getUnique_atoms(); a++) {
-        for (unsigned short aa = 0; aa < output.getAtom_count(); aa++) {
-            if (output.getUElements()[a] == output.getElements()[aa]) { //Суммирование эйгенвекторов по одинаковым атомам
-                for (unsigned short o = 0; o < set_orbitals; o++) {
-                    for (unsigned short s = 0; s < output.getKSpdfghi(); s++) {
-                        unsigned short sumVectorsSPDSize = sumVectorsSPD[o][a][s].size();
-                        for (unsigned short n = 0; n < sumVectorsSPDSize; n++)
-                            uVectors[o][a][s][n] += sumVectorsSPD[o][aa][s][n];
+    //Финальная физическая редукция заселенностей
+    for (auto& orbital : uVectors) {
+        for (auto& atom : orbital) {
+            for (auto& shell : atom) {
+                if (shell.isEmpty()) continue; //Пропуск пустых данных
+                double sum = 0.0;
+                double max_abs_val = -1.0;
+                unsigned short dominant_idx = 0;
+                bool has_population = false;
+                //Определение доминирующего физического подуровня и алгебраической суммы
+                for (auto n = 0; n < shell.size(); ++n) {
+                    const double val = shell[n];
+                    const double abs_val = std::abs(val);
+                    sum += val;
+                    if (abs_val > max_abs_val) {
+                        max_abs_val = abs_val;
+                        dominant_idx = n;
+                        if (abs_val > 1e-12) has_population = true; //Фильтр вычислительного шума
                     }
+                }
+                //Концентрация электронной плотности в нужный подуровень
+                if (has_population) {
+                    std::fill(shell.begin(), shell.end(), 0.0);
+                    shell[dominant_idx] = sum;
                 }
             }
         }

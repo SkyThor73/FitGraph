@@ -75,8 +75,6 @@ private:
     QList<QList<QList<QList<double> > > > spdSimple, spdSimpleBeta, spdMulliken, spdMullikenBeta, spdLowdin, spdLowdinBeta, spdRIntensity;
 
     void RefreshVector(const FOutput &output, const unsigned short &set_orbitals, QList<QList<QList<QList<double> > > > &spd);  //Обновление вектора при выборе нового файла
-    void FillingVector(const FOutput &output, const unsigned short &set_orbitals, const QList<QList<QList<QList<double> > > > &uVectors, const QList<double> &sumVector, QList<QList<QList<QList<double> > > > &spdVectorAB); //Заполнение вектора
-    QList<double> sumSPD(const FOutput &output, const unsigned short &set_orbitals, const QList<QList<QList<QList<double> > > > &uVectors);
     QList<QList<QList<QList<double> > > > ConvolusionSPD(const FOutput &output, const QList<FElement *> &element, const unsigned short &set_orbitals, const QList<QList<QList<QList<double> > > > &setVectors);
 };
 

@@ -472,6 +472,10 @@ void FOutput::ReadingCP2K(QTextStream &stream)
     constexpr QStringView basisNumMarker(u"- Spherical basis functions:");
     constexpr QStringView elementmMarker(u"MODULE QUICKSTEP: ATOMIC COORDINATES IN ANGSTROM");
     constexpr QStringView orbitalsMarker(u"Number of occupied orbitals:");
+    constexpr QStringView ewGWMarker(u"Eigenvalue-selfconsistency cycle:");
+    constexpr QStringView scGW0Marker(u"scGW0 selfconsistency cycle:");
+    constexpr QStringView G0W0Marker(u"G0W0 results");
+
     bool found_basis = false, found_funcs = false, found_atoms = false, found_orbitals = false; //Флаги
     QString line = "";
     line.reserve(256);
@@ -517,7 +521,6 @@ void FOutput::ReadingCP2K(QTextStream &stream)
         }
     };
     allocate_3d(overlap, orbital_count, atom_count, kSpdfghi);
-    allocate_3d(eigenVectors, orbital_count, atom_count, kSpdfghi);
     energy.clear();
     energy.reserve(orbital_count);
     symmetry.clear();
@@ -612,14 +615,12 @@ void FOutput::ReadingCP2K(QTextStream &stream)
                     ++it; //Переход к числовым коэффициентам
                     for (; it != end; ++it) {
                         if (o >= orbital_count) break;
-                        const double val = it->toDouble();
-                        eigenVectors[o][a][s].push_back(val * val);
-                        C(j, o) = val;
+                        C(j, o) = it->toDouble();
                         ++o;
                     }
                 }
             }
-        } else if (line.contains(u"Eigenvalue-selfconsistency cycle:", Qt::CaseInsensitive)) {
+        } else if (line.contains(G0W0Marker, Qt::CaseInsensitive) || line.contains(scGW0Marker, Qt::CaseInsensitive) || line.contains(ewGWMarker, Qt::CaseInsensitive)) {
             //Пропуск строк до начала таблицы данных
             while (stream.readLineInto(&line)) {
                 if (line.contains(u"Molecular orbital", Qt::CaseInsensitive)) break;
@@ -646,11 +647,17 @@ void FOutput::ReadingCP2K(QTextStream &stream)
     //Расчёт заселённостей по Малликену и Лёвдину
     Eigen::MatrixXd P_mull = PopulationAnalysis::calculateMulliken(C, S);
     Eigen::MatrixXd P_low = PopulationAnalysis::calculateLowdin(C, S);
+    //Нормировка простых заселенностей (Simple)
+    Eigen::MatrixXd C_sq = C.cwiseProduct(C);
+    //Поколоночное деление каждого элемента на сумму элементов его столбца
+    Eigen::MatrixXd P_simple = C_sq.array().rowwise() / C_sq.colwise().sum().array();
+    allocate_3d(eigenVectors, orbital_count, atom_count, kSpdfghi);
     allocate_3d(mullikenVectors, orbital_count, atom_count, kSpdfghi);
     allocate_3d(lowdinVector, orbital_count, atom_count, kSpdfghi);
     for (unsigned short o = 0; o < orbital_count; ++o) {
         for (unsigned short j = 0; j < basis_functions; ++j) {
             const auto& map = basis_mask[j];
+            eigenVectors[o][map.atom_idx][map.shell_idx].push_back(P_simple(j, o));
             mullikenVectors[o][map.atom_idx][map.shell_idx].push_back(P_mull(j, o));
             lowdinVector[o][map.atom_idx][map.shell_idx].push_back(P_low(j, o));
         }
