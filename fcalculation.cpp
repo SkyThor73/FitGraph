@@ -49,7 +49,7 @@ void FCalculation::CalculationIntegralArea(const FOutput &output, const FDataPCS
     }
     for (unsigned short o = 0; o < set_orbitals; o++) {
         double betaMO_a = 0.0, betaMO_b = 0.0;
-        // Первый проход: вычисление коэффициента асимметрии betaMO
+        //Первый проход: вычисление коэффициента асимметрии betaMO
         for (unsigned short a = 0; a < output.getUnique_atoms(); a++) {
             for (unsigned short s = 0; s < output.getKSpdfghi(); s++) {
                 const auto& shell = spdSet[o][a][s];
@@ -66,7 +66,7 @@ void FCalculation::CalculationIntegralArea(const FOutput &output, const FDataPCS
         //Защита от деления на ноль (для пустых виртуальных орбиталей)
         betaMO[o] = (betaMO_b != 0.0) ? (betaMO_a / betaMO_b) : 0.0;
         const double beta_factor = 2.0 + betaMO[o] * 0.5;
-        // Второй проход: расчет интегральной площади
+        //Второй проход: расчет интегральной площади
         for (unsigned short a = 0; a < output.getUnique_atoms(); a++) {
             for (unsigned short s = 0; s < output.getKSpdfghi(); s++) {
                 const auto& shell = spdSet[o][a][s];
@@ -91,6 +91,8 @@ void FCalculation::CalculationXY(const unsigned short &set_orbitals, const QList
     //Формирование сетки оси X без накопления ошибки округления
     abscissaX.resize(steps);
     const double step_size = (end_value - initial_value) / steps;
+    //Защита от деления на ноль, если step_size крайне мал
+    const double inv_step_size = (step_size > 0.0) ? (1.0 / step_size) : 0.0;
     for (unsigned short x = 0; x < steps; x++) {
         abscissaX[x] = initial_value + x * step_size;
     }
@@ -105,17 +107,29 @@ void FCalculation::CalculationXY(const unsigned short &set_orbitals, const QList
     const double L_coeff = 0.108524845891868 * resolution_ratio;
     const double G_coeff = 0.304942959407588 / resolution_ratio;
     const double exp_coeff = -2.77258872223978 / res2;
+    //Параметр отсечения (Cutoff): 5 ширин линии (FWHM)
+    //Функция Лоренца на расстоянии 5 ширин падает до ~1% от максимума, Гаусс - до нуля.
+    const double cutoff_radius = 10.0 * resolution_ratio;
+    //Перевод радиуса отсечения из эВ в количество индексов массива (шагов сетки)
+    const int window_steps = static_cast<int>(cutoff_radius * inv_step_size);
+
     for (unsigned short o = 0; o < set_orbitals; o++) {
-        //Пропускаем расчет, если энергия вне диапазона или площадь равна нулю
         if (setEnergy[o] >= getUpper_bound() || integral_area[o] == 0.0) continue;
         const double E_o = setEnergy[o];
         const double area = integral_area[o];
-        for (unsigned short x = 0; x < steps; x++) {
+        //Определение центра пика в индексах массива
+        //(E_o - initial_value) / step_size дает точный индекс
+        const int center_idx = static_cast<int>((E_o - initial_value) * inv_step_size);
+        //Определение границ окна с защитой от выхода за пределы массива
+        int start_x = std::max(0, center_idx - window_steps);
+        int end_x = std::min(static_cast<int>(steps), center_idx + window_steps + 1);
+        //Цикл работает только внутри узкого окна вокруг E_o
+        for (int x = start_x; x < end_x; x++) {
             const double dE = abscissaX[x] - E_o;
             const double dE2 = dE * dE;
-            // Расчет компоненты Лоренца
+            //Расчет компоненты Лоренца
             const double L_val = L_coeff / (dE2 + res2 * 0.25);
-            // Расчет компоненты Гаусса
+            //Расчет компоненты Гаусса
             const double G_val = G_coeff * std::exp(dE2 * exp_coeff);
             const double val = area * (L_val + G_val);
             gaussian[o][x] = val;
@@ -144,7 +158,7 @@ void FCalculation::CalculationXY(const unsigned short &set_orbitals, const QList
         if (setEnergy[o] >= getUpper_bound() || integral_area[o] == 0.0) continue;
         const double E_o = setEnergy[o];
         const double area = integral_area[o];
-        // Инварианты переносятся сюда, так как resolution индивидуально для орбитали
+        //Инварианты переносятся сюда, так как resolution индивидуально для орбитали
         const double res = resolution_vector[o];
         const double res2 = res * res;
         const double L_coeff = 0.108524845891868 * res;
@@ -348,25 +362,20 @@ QList<QList<QList<QList<double> > > > FCalculation::ConvolusionSPD(const FOutput
     const unsigned short atom_count = output.getAtom_count();
     const unsigned short unique_count = output.getUnique_atoms();
     const unsigned short subshells = output.getKSpdfghi();
-    //Хэширование Z-номеров для доступа за O(1)
-    QHash<QString, unsigned short> nameToZ;
-    for (unsigned short i = 0; i < unique_count; ++i)
-        nameToZ.insert(output.getUElements()[i], element[i]->getElementNumber());
-    //Создание и сортировка массива строк c названиями атомов в порядке уменьшения зарядового числа
-    QList<QString> sorted_elements = output.getUElements();
-    std::sort(sorted_elements.begin(), sorted_elements.end(), [&](const QString& a, const QString& b) {
-        return nameToZ[a] > nameToZ[b];
-    });
+    //Предварительный маппинг индексов уникальных атомов (Сложность O(1))
     std::vector<unsigned short> unique_map(atom_count, 0);
-    std::vector<unsigned short> Z_numbers(unique_count, 0);
     for (unsigned short a = 0; a < atom_count; ++a) {
         for (unsigned short u = 0; u < unique_count; ++u) {
-            if (output.getElements()[a] == sorted_elements[u]) {
+            if (output.getElements()[a] == output.getUElements()[u]) {
                 unique_map[a] = u;
-                Z_numbers[u] = nameToZ[sorted_elements[u]]; // Извлечение Z-номера из хэш-таблицы
                 break;
             }
         }
+    }
+    //Кэширование Z-номеров для корректной работы лямбда-функций свертки
+    std::vector<unsigned short> Z_numbers(unique_count, 0);
+    for (unsigned short u = 0; u < unique_count; ++u) {
+        Z_numbers[u] = element[u]->getElementNumber();
     }
     //Вектор вкладов
     QList<QList<QList<QList<double>>>> uVectors(set_orbitals, QList<QList<QList<double>>>(unique_count, QList<QList<double>>(subshells, QList<double>(19, 0.0))));
@@ -399,7 +408,7 @@ QList<QList<QList<QList<double> > > > FCalculation::ConvolusionSPD(const FOutput
                 auto& target = uVectors[o][u][s];
                 if (source.isEmpty()) continue;
                 switch (s) {
-                case 0: // S-оболочка
+                case 0: //S-оболочка
                     if (currentBasis == BasisFamily::SVP) {
                         if (Z < 3)       contract_shell(source, target, 0, {});
                         else if (Z < 11) contract_shell(source, target, 0, {1});
@@ -425,8 +434,8 @@ QList<QList<QList<QList<double> > > > FCalculation::ConvolusionSPD(const FOutput
                         else if (Z < 37) contract_shell(source, target, 0, {4});
                     }
                     break;
-                case 1: // P-оболочка
-                    if (Z < 3) break; // H, He игнорируются
+                case 1: //P-оболочка
+                    if (Z < 3) break; //H, He игнорируются
                     if (currentBasis == BasisFamily::SVP) {
                         if (Z < 11)      contract_shell(source, target, 0, {});
                         else if (Z < 19) contract_shell(source, target, 0, {3});
@@ -448,18 +457,18 @@ QList<QList<QList<QList<double> > > > FCalculation::ConvolusionSPD(const FOutput
                         else if (Z < 37) contract_shell(source, target, 0, {3, 6});
                     }
                     break;
-                case 2: // D-оболочка
+                case 2: //D-оболочка
                     if (Z < 19) break;
                     if (Z < 37)      contract_shell(source, target, 0, {});
                     else if (Z < 55) contract_shell(source, target, 1, {});
                     break;
-                case 3: // F-оболочка
+                case 3: //F-оболочка
                     reduce_angular(source, target, (output.getProgramm() == FOutput::GAUSSIAN || output.getProgramm() == FOutput::ORCA) ? 7 : 10);
                     break;
-                case 4: // G-оболочка
+                case 4: //G-оболочка
                     reduce_angular(source, target, 15);
                     break;
-                case 5: // H-оболочка
+                case 5: //H-оболочка
                     reduce_angular(source, target, 21);
                     break;
                 }

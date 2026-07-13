@@ -1,4 +1,5 @@
 #include "foutput.h"
+#include "fdatapcs.h"
 #include "Core"
 #include "Eigenvalues"
 #include "qregularexpression.h"
@@ -16,19 +17,15 @@ public:
         //Поэлементное умножение (Hadamard product)
         return C.cwiseProduct(SC);
     }
-
     //Расчет матрицы заселенностей по Лёвдину
     static Eigen::MatrixXd calculateLowdin(const Eigen::MatrixXd& C, const Eigen::MatrixXd& S) {
         //Диагонализация симметричной положительно определенной матрицы S
         Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> solver(S);
-
         //S = U * D * U^T  => S^{1/2} = U * D^{1/2} * U^T
         Eigen::VectorXd D_sqrt = solver.eigenvalues().cwiseSqrt();
         Eigen::MatrixXd S_half = solver.eigenvectors() * D_sqrt.asDiagonal() * solver.eigenvectors().transpose();
-
         //Ортогонализация коэффициентов
         Eigen::MatrixXd C_ortho = S_half * C;
-
         //Возведение в квадрат каждого элемента
         return C_ortho.cwiseProduct(C_ortho);
     }
@@ -83,9 +80,15 @@ void FOutput::ReadData(const QString &path_file)
 
     uElements.clear();
     uElements = elements;
+
+    //Алфавитная сортировка для корректной работы std::unique
     std::sort(uElements.begin(), uElements.end());
     const auto last = std::unique(uElements.begin(), uElements.end());
     uElements.erase(last, uElements.cend());
+    //Физическая сортировка по убыванию зарядового числа (Z) с использованием базы данных
+    std::sort(uElements.begin(), uElements.end(), [](const QString& a, const QString& b) {
+        return FDataPCS::getAtomicNumber(a) > FDataPCS::getAtomicNumber(b);
+    });
     unique_atoms = uElements.size();
 }
 
