@@ -16,6 +16,7 @@ public:
     void CalculationXY(const unsigned short &set_orbitals, const QList<double> &setEnergy);  //Вызывается при изменении number_of_steps, initial_value и end_value
     void CalculationXY(const unsigned short &set_orbitals, const QList<double> &setEnergy, QList<double> resolution_vector);  //Вызывается при изменении number_of_steps, initial_value и end_value
     void CalculationEachWidth(const FOutput &output, const FDataPCS &pcs, const unsigned short &set_orbitals, const QList<QList<QList<QList<double> > > > &spdSet, QList<double> resolution_vector);
+    void ExportIntensitiesToTxt(const QString &filePath, const FOutput &output, const unsigned short &set_orbitals, const QList<double> &setEnergy);
 
     const Sources &getSource() const;
     void setSource(Sources newSource);

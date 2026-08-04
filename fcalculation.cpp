@@ -196,6 +196,73 @@ void FCalculation::CalculationEachWidth(const FOutput &output, const FDataPCS &p
     }
 }
 
+void FCalculation::ExportIntensitiesToTxt(const QString &filePath, const FOutput &output, const unsigned short &set_orbitals, const QList<double> &setEnergy)
+{
+    struct ActiveNode {
+        unsigned short a, s, n;
+        QString header;
+    };
+    QList<ActiveNode> active_columns;
+    const char shell_chars[] = "spdfgh";
+
+    //Сканирование непустых столбцов
+    for (unsigned short a = 0; a < output.getUnique_atoms(); ++a) {
+        QString elemName = output.getUElements()[a];
+        for (unsigned short s = 0; s < output.getKSpdfghi(); ++s) {
+            const unsigned short max_n = spdRIntensity[0][a][s].size();
+            for (unsigned short n = 0; n < max_n; ++n) {
+                bool isActive = false;
+                for (unsigned short o = 0; o < set_orbitals; ++o) {
+                    if (std::abs(spdRIntensity[o][a][s][n]) > 1e-12) {
+                        isActive = true;
+                        break;
+                    }
+                }
+                if (isActive) {
+                    QString header = QString("%1(%2%3)").arg(elemName).arg(n + s + 1).arg(shell_chars[s]);
+                    active_columns.push_back({a, s, n, header});
+                }
+            }
+        }
+    }
+
+    QFile file(filePath);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) return;
+
+    QTextStream out(&file);
+
+    //Печать шапки таблицы
+    out << "MO\tEnergy(eV)\tTotal_Area";
+    for (const auto &col : active_columns) {
+        out << "\t" << col.header << "(%)";
+    }
+    out << "\n";
+
+    //Печать строк с данными
+    for (unsigned short o = 0; o < set_orbitals; ++o) {
+        const double ind_total_area = integral_area[o];
+        const double total_area = RIntensity[o];
+        if (total_area == 0.0) continue;
+
+        out.setRealNumberNotation(QTextStream::FixedNotation);
+
+        //Точность для энергии и площади
+        out << (o + 1) << "\t";
+        out.setRealNumberPrecision(6);
+        out << setEnergy[o] << "\t" << ind_total_area;
+        //Точность для процентов
+        out.setRealNumberPrecision(4);
+        for (const auto &col : active_columns) {
+            const double abs_val = spdRIntensity[o][col.a][col.s][col.n];
+            const double percentage = (abs_val / total_area) * 100.0;
+            out << "\t" << percentage;
+        }
+        out << "\n";
+    }
+
+    file.close();
+}
+
 const FCalculation::Sources &FCalculation::getSource() const
 {
     return source;

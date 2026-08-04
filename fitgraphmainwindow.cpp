@@ -1,5 +1,10 @@
 #include "fitgraphmainwindow.h"
 #include "ui_fitgraphmainwindow.h"
+#include <QDialog>
+#include <QVBoxLayout>
+#include <QCheckBox>
+#include <QDialogButtonBox>
+#include <QFileInfo>
 
 FitGraphMainWindow::FitGraphMainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -353,17 +358,64 @@ void FitGraphMainWindow::on_pushButton_Add_clicked()
 
 void FitGraphMainWindow::on_pushButton_Save_clicked()
 {
+    //Динамическая генерация диалогового окна выбора
+    QDialog dialog(this);
+    dialog.setWindowTitle(tr("Export Options"));
+    QVBoxLayout layout(&dialog);
+
+    QCheckBox cbSpectrum(tr("Save XY Spectrum"), &dialog);
+    cbSpectrum.setChecked(true); //Установлено по умолчанию
+    QCheckBox cbTable(tr("Save MO Contributions Table (%)"), &dialog);
+
+    QDialogButtonBox buttonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+    connect(&buttonBox, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    connect(&buttonBox, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+
+    layout.addWidget(&cbSpectrum);
+    layout.addWidget(&cbTable);
+    layout.addWidget(&buttonBox);
+
+    //Блокировка дальнейшего выполнения при отмене или если ничего не выбрано
+    if (dialog.exec() != QDialog::Accepted || (!cbSpectrum.isChecked() && !cbTable.isChecked()))
+        return;
+    //Формирование путей через QFileInfo
+    QFileInfo fileInfo(getPath_file());
+    QString defaultBaseName = fileInfo.absolutePath() + "/" + fileInfo.completeBaseName();
+
     QString strFilter;
-    QString file_name = getPath_file();
-    file_name.chop(4);
-    QString str = QFileDialog::getSaveFileName(this, tr("Save graph"), file_name, "*.txt ;; *.dat" , &strFilter);
-    QFile fileOut(str);
-    if (fileOut.open(QIODevice::WriteOnly | QIODevice::Text)) {
-        QTextStream writeStream(&fileOut);
-        for (unsigned short x = 0; x < calculate->getSteps(); x++) {
-            writeStream << calculate->getOrdinateY()[x] << '\t' << calculate->getAbscissaX()[x] << '\n';
+    QString savePath = QFileDialog::getSaveFileName(this, tr("Save Data"), defaultBaseName, "*.txt ;; *.dat", &strFilter);
+
+    if (savePath.isEmpty()) {
+        return;
+    }
+
+    QFileInfo saveInfo(savePath);
+    QString finalBasePath = saveInfo.absolutePath() + "/" + saveInfo.completeBaseName();
+    QString extension = saveInfo.suffix().isEmpty() ? "txt" : saveInfo.suffix();
+
+    //Конвейер сохранения спектра (X-Y формат)
+    if (cbSpectrum.isChecked()) {
+        //Если выбраны обе опции, добавляем суффикс, чтобы файлы не перезаписывали друг друга
+        QString spectrumPath = cbTable.isChecked() ? finalBasePath + "_spectrum." + extension : savePath;
+        QFile fileOut(spectrumPath);
+
+        if (fileOut.open(QIODevice::WriteOnly | QIODevice::Text)) {
+            QTextStream writeStream(&fileOut);
+            writeStream.setRealNumberNotation(QTextStream::FixedNotation);
+            writeStream.setRealNumberPrecision(6);
+
+            const unsigned short steps = calculate->getSteps();
+            for (unsigned short x = 0; x < steps; ++x) {
+                //Энергия (X) \t Интенсивность (Y)
+                writeStream << calculate->getAbscissaX()[x] << '\t' << calculate->getOrdinateY()[x] << '\n';
+            }
+            fileOut.close();
         }
-        fileOut.close();
+    }
+    //Конвейер сохранения таблицы вкладов
+    if (cbTable.isChecked()) {
+        QString tablePath = cbSpectrum.isChecked() ? finalBasePath + "_MO_contributions_table." + extension : savePath;
+        calculate->ExportIntensitiesToTxt(tablePath, *output, orbitals, energy);
     }
 }
 
