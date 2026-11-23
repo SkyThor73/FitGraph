@@ -28,7 +28,7 @@ QHash<QString, ElementCache> databaseCache;
 bool isCacheLoaded = false;
 }
 
-const QString FDataPCS::pcs_path = "atomic_data.json";
+const QString FDataPCS::pcs_path = ":/data/atomic_data.json";
 
 FDataPCS::FDataPCS() {}
 

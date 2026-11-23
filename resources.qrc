@@ -1,0 +1,5 @@
+<RCC>
+    <qresource prefix="/">
+        <file>data/atomic_data.json</file>
+    </qresource>
+</RCC>

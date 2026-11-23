@@ -1,6 +1,6 @@
 # FitGraph
 
-![Qt](https://img.shields.io/badge/Qt-5%20%7C%206-41CD52?logo=qt&logoColor=white)
+![Qt](https://img.shields.io/badge/Qt-6.x-41CD52?logo=qt&logoColor=white)
 ![C++](https://img.shields.io/badge/C%2B%2B-17-00599C?logo=cplusplus&logoColor=white)
 ![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)
 
@@ -8,7 +8,6 @@
 
 Программа поддерживает моделирование спектров для стандартных лабораторных источников излучения: **He I** (21.2 эВ), **He II** (40.8 эВ), **Mg Kα** (1253.6 эВ) и **Al Kα** (1486.7 эВ). В следующих версиях планируется добавить произвольный выбор энергии фотонов для задач синхротронной спектроскопии.
 
-<!-- Замените путь на реальный скриншот интерфейса с примером сравнения теоретического и экспериментального спектра -->
 ![Интерфейс FitGraph](docs/screenshot_main.png)
 
 ---
@@ -47,7 +46,7 @@ FitGraph автоматизирует расчёт интенсивностей 
 
 **Основные модули проекта:**
 * [`src/foutput.cpp`](src/foutput.cpp) — парсинг энергий МО и электронных заселённостей из выходных файлов квантово-химических пакетов.
-* [`src/fdatapcs.cpp`](src/fdatapcs.cpp) — загрузка атомных сечений фотоионизации и параметров асимметрии из [`data/PhotoionizationCrossSection_Asymmetry.dat`](data/PhotoionizationCrossSection_Asymmetry.dat) и справочных данных из [`data/atomic_data.json`](data/atomic_data.json).
+* [`src/fdatapcs.cpp`](src/fdatapcs.cpp) — загрузка атомных сечений фотоионизации, параметров асимметрии и справочных данных (атомные номера, цвета CPK) из data/atomic_data.json.
 * [`src/felement.cpp`](src/felement.cpp) — хранение параметров химических элементов, входящих в состав молекулы.
 * [`src/fcalculation.cpp`](src/fcalculation.cpp) — расчёт сечений фотоионизации МО по модели Гелиуса–Зигбана и построение теоретического спектра.
 * [`src/fexperimental.cpp`](src/fexperimental.cpp) — импорт оцифрованного экспериментального спектра.
@@ -66,7 +65,7 @@ FitGraph автоматизирует расчёт интенсивностей 
    * [FireFly](http://classic.chem.msu.su/gran/gamess/)
    * [Gaussian](https://gaussian.com/)
 2. **Экспериментальный спектр (опционально):** оцифрованный текстовый файл (`.dat`), полученный на источнике He I, He II, Mg Kα или Al Kα.
-   * *Формат файла:* `[два столбца (энергия связи в эВ, интенсивность), разделённые пробелом или табуляцией, десятичный разделитель — точка]`.
+   * *Формат файла:* два столбца (энергия связи в эВ, интенсивность), разделённые пробелом или табуляцией, десятичный разделитель — точка.
 
 Примеры входных файлов для быстрой проверки программы доступны в директории [`examples/`](examples/).
 
@@ -75,59 +74,55 @@ FitGraph автоматизирует расчёт интенсивностей 
 ## Сборка и запуск
 
 ### Требования
-* **Qt:** `[Qt 6.x]` (модули `Core`, `Gui`, `Widgets`, `PrintSupport`).
-* **Компилятор:** C++17 совместимый (MinGW / MSVC на Windows, GCC / Clang на Linux).
+* **Qt:** Qt 6.x (модули `Core`, `Gui`, `Widgets`, `PrintSupport`).
+* **Компилятор:** C++20 совместимый (MinGW / MSVC на Windows, GCC / Clang на Linux).
 
 ### Вариант 1: через Qt Creator
-1. Установите **Qt** и **Qt Creator** через [Qt Online Installer](https://www.qt.io/download), выбрав нужную версию Qt и компилятор для вашей ОС.
+1. Установите **Qt** и **Qt Creator** через [Qt Online Installer](https://www.qt.io/download), выбрав нужную версию Qt 6 и компилятор для вашей ОС.
 2. Клонируйте репозиторий:
-   
+   ```bash
    git clone [https://github.com/skythor73/FitGraph.git](https://github.com/skythor73/FitGraph.git)
-   
-3. В Qt Creator выберите Файл → Открыть файл или проект... и откройте FitGraph.pro.
-
-4. Выберите доступный комплект сборки (Kit) и нажмите Настроить проект.
-
-5. Нажмите Сборка → Собрать проект (Ctrl+B), затем Запустить (Ctrl+R).
+   ```
+3. В Qt Creator выберите **Файл → Открыть файл или проект...** и откройте [`FitGraph.pro`](FitGraph.pro).
+4. Выберите доступный комплект сборки (**Kit**) и нажмите **Настроить проект**.
+5. Нажмите **Сборка → Собрать проект** (`Ctrl+B`), затем **Запустить** (`Ctrl+R`).
 
 ### Вариант 2: из командной строки (qmake)
-
+```bash
 git clone [https://github.com/skythor73/FitGraph.git](https://github.com/skythor73/FitGraph.git)
 cd FitGraph
 mkdir build && cd build
 qmake ../FitGraph.pro
 make -j$(nproc)   # или mingw32-make / nmake на Windows
+```
 
-Примечание: Убедитесь, что директория с файлами данных (data/atomic_data.json и data/PhotoionizationCrossSection_Asymmetry.dat) находится в рабочей директории рядом с исполняемым файлом (или подключена через ресурсы .qrc).
+---
 
-### Цитирование
+## Цитирование
 
-Если вы используете FitGraph в своих исследованиях, пожалуйста, сошлитесь на нашу публикацию (статья готовится к публикации / находится на рецензировании; библиографические данные и DOI будут обновлены после выхода):
+Если вы используете **FitGraph** в своих исследованиях, пожалуйста, сошлитесь на мою публикацию *(статья готовится к публикации, библиографические данные и DOI будут обновлены после выхода)*:
 
-Фрагмент кода
+```bibtex
 @article{Chekh2026FitGraph,
-  author  = {Chekh Alexander},
+  author  = {Chekh, Alexander},
   title   = {FitGraph: [Название научной статьи]},
   journal = {[Название журнала]},
   year    = {2026},
   note    = {Manuscript in preparation / submitted},
   url     = {[https://github.com/skythor73/FitGraph](https://github.com/skythor73/FitGraph)}
 }
+```
 
-### Сторонние компоненты и лицензия
+---
 
-* Исходный код FitGraph распространяется под лицензией GNU General Public License v3.0 (GPLv3). Полный текст лицензии приведён в файле LICENSE.
+## Лицензия и сторонние компоненты
 
-* Для построения графиков используется библиотека QCustomPlot (third_party/qcustomplot/), также распространяемая по лицензии GNU GPLv3.
-
-## Лицензия
-
-Этот проект распространяется под лицензией GNU General Public License v3.0 (GPLv3). Вы должны были получить копию GNU GPLv3 вместе с этой программой. Если это не так, смотрите [https://www.gnu.org/licenses/gpl-3.0.html](https://www.gnu.org/licenses/gpl-3.0.html).
-
-Для получения подробной информации смотрите файл [LICENSE](LICENSE).
+* Исходный код **FitGraph** распространяется под лицензией **GNU General Public License v3.0 (GPLv3)**. Полный текст лицензии приведён в файле [LICENSE](LICENSE) и доступен по адресу [https://www.gnu.org/licenses/gpl-3.0.html](https://www.gnu.org/licenses/gpl-3.0.html).
+* Для построения графиков используется библиотека [QCustomPlot](https://www.qcustomplot.com/) (`3rdparty/qcustomplot/`), также распространяемая по лицензии GNU GPLv3.
+* Для матричной алгебры используется библиотека [Eigen](https://libeigen.gitlab.io/) (`3rdparty/Eigen/`), распространяемая по лицензии MPL-2.0.
 
 ### Авторское право
 
-&copy; [2022-2026] [Александр Чех]
+&copy; 2022–2026 Александр Чех.
 
-Исключительные права на программу для ЭВМ зарегистрированы в установленном порядке (номер свидетельства о государственной регистрации предоставляется по запросу) . Все права, не предоставленные явно условиями лицензии GNU GPLv3, сохраняются за правообладателем.
+Исключительные права на программу для ЭВМ зарегистрированы в установленном порядке (номер свидетельства о государственной регистрации предоставляется по запросу). Все права, не предоставленные явно условиями лицензии GNU GPLv3, сохраняются за правообладателем.
