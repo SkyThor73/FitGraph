@@ -1,7 +1,7 @@
 # FitGraph
 
 ![Qt](https://img.shields.io/badge/Qt-6.x-41CD52?logo=qt&logoColor=white)
-![C++](https://img.shields.io/badge/C%2B%2B-17-00599C?logo=cplusplus&logoColor=white)
+![C++](https://img.shields.io/badge/C%2B%2B-20-00599C?logo=cplusplus&logoColor=white)
 ![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)
 
 **FitGraph** — кроссплатформенное настольное приложение на C++/Qt для моделирования ультрафиолетовых (УФЭ, UPS) и рентгеновских (РФЭ, XPS) фотоэлектронных спектров в рамках модели Гелиуса–Зигбана ([DOI: 10.1039/DC9725400257](https://doi.org/10.1039/DC9725400257)) и их прямого сопоставления с экспериментальными данными.
